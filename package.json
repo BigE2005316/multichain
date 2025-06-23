@@ -1,14 +1,16 @@
 {
   "name": "smile-snipper-bot",
-  "version": "1.0.0",
-  "description": "Advanced multi-chain copy trading bot with real-time notifications",
-  "main": "index.js",
+  "version": "2.0.0",
+  "description": "Professional multi-chain trading bot with advanced copy trading and real blockchain execution",
+  "main": "app.js",
   "scripts": {
-    "start": "node index.js",
-    "dev": "nodemon index.js",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node app.js",
+    "dev": "nodemon app.js",
+    "test": "node test-new-bot.js",
+    "test-old": "node test-bot.js",
     "build": "echo \"No build step required\"",
-    "deploy": "echo \"Ready for deployment\""
+    "deploy": "echo \"Ready for deployment\"",
+    "validate": "node test-new-bot.js && echo 'Bot validation complete'"
   },
   "keywords": [
     "telegram-bot",
@@ -18,7 +20,10 @@
     "ethereum",
     "bsc",
     "copy-trading",
-    "defi"
+    "defi",
+    "professional",
+    "multi-chain",
+    "blockchain"
   ],
   "author": "Smile Snipper Team",
   "license": "MIT",

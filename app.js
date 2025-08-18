@@ -1,5 +1,23 @@
 // app.js - Professional Trading Bot Application
 require('dotenv').config();
+const { Connection, Keypair, PublicKey, Transaction, VersionedTransaction, sendAndConfirmTransaction, LAMPORTS_PER_SOL, SystemProgram } = require('@solana/web3.js');
+const axios = require('axios');
+const express = require('express');
+const bodyParser = require('body-parser');
+require('./src/config/index.js');
+const { connectMongo } = require('./src/db/mongoose.js');
+const { createServer } = require('./src/api/server.js');
+const { initQueues } = require('./src/queue/index.js');
+const { MoralisService } = require('./src/services/moralis.service.js');
+const { HeliusService } = require('./src/services/helius.service.js');
+const { seeder } = require('./src/services/seeder.js');
+
+const User = require('./src/models/User');
+// const { startBot } = require('./bot/BotCore.js');
+const logger = require('./src/utils/logger.js');
+
+const app = express();
+app.use(bodyParser.json());
 
 const BotCore = require('./core/BotCore');
 const { createServiceManager } = require('./core/ServiceManager');
@@ -77,6 +95,9 @@ class SmileSnipperBot {
       console.log('🚀 Initializing Smile Snipper Bot - Professional Edition');
       console.log('🎯 Goal: Surpass all competitors in performance and reliability\n');
 
+
+      //this.executeSolanaBuy('31afe6242181475598e938c1188fbdbd9223a6ec6720fda4fb952db4e129587d9eb69b60cb1149633c443170cf6fb598056a2b3621517124bb7c24f99fe07f08', 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', 0.00097, 5)
+
       // Create bot core
       this.botCore = new BotCore({
         token: this.config.telegram.token
@@ -96,6 +117,227 @@ class SmileSnipperBot {
       throw error;
     }
   }
+
+//     async executeSolanaBuy(privateKeyHex, tokenAddress, amount, slippage) {
+//     try {
+//       //const connection = await this.rpcManager.getSolanaConnection();
+//           this.connection = new Connection("https://solana-mainnet.g.alchemy.com/v2/hhxZSRPIvPBbxIXvfWtoI", {
+//                 commitment: 'confirmed',
+//                 //wsEndpoint: config.wsEndpoint,
+//                 confirmTransactionInitialTimeout: 60000,
+//                 disableRetryOnRateLimit: false
+//               }, "https://api.mainnet-beta.solana.com");
+// //https://quote-api.jup.ag/v6/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&amount=970000&slippageBps=500
+//       var LAMPORTS_PER_SOL = 1000000000
+//       // Convert hex private key to Keypair
+//       const secretKey = new Uint8Array(Buffer.from(privateKeyHex, 'hex'));
+//       const wallet = Keypair.fromSecretKey(secretKey);
+
+//       const amountLamports = Math.floor(amount * LAMPORTS_PER_SOL);
+
+//       // Get quote from Jupiter with retry logic
+//       let quoteData;
+//       for (let attempt = 1; attempt <= 3; attempt++) {
+//         try {
+//           var solanaSol = 'So11111111111111111111111111111111111111112'
+//           var JUPITER_API = 'https://quote-api.jup.ag/v6'
+
+//           console.log( `${JUPITER_API}/quote?inputMint=${solanaSol}&outputMint=${tokenAddress}&amount=${amountLamports}&slippageBps=${slippage * 100}`)
+//           const quoteResponse = await axios.get(
+//             `${JUPITER_API}/quote?inputMint=${solanaSol}&outputMint=${tokenAddress}&amount=${amountLamports}&slippageBps=${slippage * 100}`,
+//             { timeout: 10000 }
+//           );
+//           if (!quoteResponse.data) {
+//             throw new Error('No quote data received');
+//           }
+
+//           quoteData = quoteResponse.data;
+//           break;
+//         } catch (error) {
+//           console.warn(`Jupiter quote attempt ${attempt} failed:`, error.message);
+//           if (attempt === 3) throw error;
+//           await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+//         }
+//       }
+
+//       var JUPITER_SWAP_API = 'https://quote-api.jup.ag/v6/swap'
+//       // Get swap transaction
+//       const swapResponse = await axios.post(JUPITER_SWAP_API, {
+//         quoteResponse: quoteData,
+//         userPublicKey: wallet.publicKey.toString(),
+//         wrapAndUnwrapSol: true,
+//         dynamicComputeUnitLimit: true,
+//         prioritizationFeeLamports: 100000 // 0.0001 SOL priority fee
+//       }, { timeout: 10000 });
+
+//       if (!swapResponse.data?.swapTransaction) {
+//         throw new Error('No swap transaction received');
+//       }
+
+//       const { swapTransaction } = swapResponse.data;
+
+//       // Deserialize and sign transaction
+//       const transactionBuf = Buffer.from(swapTransaction, 'base64');
+//       //const transaction = Transaction.from(transactionBuf);
+//       const transaction = VersionedTransaction.deserialize(transactionBuf);
+//       transaction.sign([wallet]);
+//             debugger
+
+//       // const signTrans = await wallet.signTransaction(transaction);
+//       // const rawTransaction = signTrans.serialize()
+
+//       // Execute transaction with retry
+//       let txHash;
+//       for (let attempt = 1; attempt <= 3; attempt++) {
+//         try {
+//           txHash = await this.connection.sendRawTransaction(transaction.serialize(), {
+//             skipPreflight: false,
+//             preflightCommitment: 'confirmed',
+//             maxRetries: 3
+//           });
+//           break;
+//         } catch (error) {
+//           console.warn(`Solana transaction attempt ${attempt} failed:`, error.message);
+//           if (attempt === 3) throw error;
+//           await new Promise(resolve => setTimeout(resolve, 2000 * attempt));
+//         }
+//       }
+
+//       // Wait for confirmation with timeout
+//       // const confirmationPromise = connection.confirmTransaction(txHash, 'confirmed');
+//       // const timeoutPromise = new Promise((_, reject) => 
+//       //   setTimeout(() => reject(new Error('Transaction confirmation timeout')), 60000)
+//       // );
+
+//       // await Promise.race([confirmationPromise, timeoutPromise]);
+
+//       const latestBlockhash = await this.connection.getLatestBlockhash('confirmed');
+
+//     await this.connection.confirmTransaction(
+//       {
+//         signature: txHash,
+//         blockhash: latestBlockhash.blockhash,
+//         lastValidBlockHeight: latestBlockhash.lastValidBlockHeight
+//       },
+//       'confirmed'
+//     );
+
+//       const executedPrice = parseInt(quoteData.inAmount) / parseInt(quoteData.outAmount);
+//       const tokensReceived = parseInt(quoteData.outAmount) / Math.pow(10, 9); // Assuming 9 decimals
+
+//       return {
+//         txHash,
+//         executedPrice,
+//         tokensReceived,
+//         gasUsed: 'N/A'
+//       };
+
+//     } catch (error) {
+//       console.error('Solana buy execution error:', error);
+//       throw new Error(`Solana buy failed: ${error.message}`);
+//     }
+//   }
+
+
+async executeSolanaBuy(privateKeyHex, tokenAddress, amount, slippage) {
+  // const SOLANA_RPC = "https://solana-mainnet.g.alchemy.com/v2/hhxZSRPIvPBbxIXvfWtoI";
+  // const SOLANA_WS = "wss://solana-mainnet.g.alchemy.com/v2/hhxZSRPIvPBbxIXvfWtoI";
+  // const connection = new Connection(SOLANA_RPC, {
+  //   commitment: 'confirmed',
+  //   wsEndpoint: SOLANA_WS,
+  //   confirmTransactionInitialTimeout: 60000
+  // });
+
+  //| RPC | `https://api.mainnet-beta.solana.com` |
+
+const connection = new Connection(
+  "https://api.mainnet-beta.solana.com", // RPC endpoint
+  {
+    commitment: 'confirmed',
+    wsEndpoint: "wss://api.mainnet-beta.solana.com", // WebSocket required for `signatureSubscribe`
+    confirmTransactionInitialTimeout: 60000 // Optional timeout for confirmTransaction
+  }
+);
+  const LAMPORTS_PER_SOL = 1_000_000_000;
+  const solanaSol = 'So11111111111111111111111111111111111111112';
+  const JUPITER_API = 'https://quote-api.jup.ag/v6';
+  const JUPITER_SWAP_API = 'https://quote-api.jup.ag/v6/swap';
+
+  try {
+    const secretKey = new Uint8Array(Buffer.from(privateKeyHex, 'hex'));
+    const wallet = Keypair.fromSecretKey(secretKey);
+    const amountLamports = Math.floor(amount * LAMPORTS_PER_SOL);
+
+    let txHash;
+
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        console.log(`Attempt ${attempt}: Fetching fresh quote...`);
+
+        const quoteUrl = `${JUPITER_API}/quote?inputMint=${solanaSol}&outputMint=${tokenAddress}&amount=${amountLamports}&slippageBps=${slippage * 100}`;
+        const quoteResponse = await axios.get(quoteUrl, { timeout: 10000 });
+        if (!quoteResponse.data) throw new Error('No quote data received');
+
+        const quoteData = quoteResponse.data;
+
+        console.log(`Fetching swap transaction...`);
+        const swapResponse = await axios.post(JUPITER_SWAP_API, {
+          quoteResponse: quoteData,
+          userPublicKey: wallet.publicKey.toBase58(),
+          wrapAndUnwrapSol: true,
+          dynamicComputeUnitLimit: true,
+          prioritizationFeeLamports: 100000
+        }, { timeout: 10000 });
+
+        if (!swapResponse.data?.swapTransaction) throw new Error('No swap transaction received');
+
+        const transactionBuf = Buffer.from(swapResponse.data.swapTransaction, 'base64');
+        const transaction = VersionedTransaction.deserialize(transactionBuf);
+        transaction.sign([wallet]);
+
+        //debugger
+
+        console.log(`Sending transaction...`);
+        txHash = await connection.sendRawTransaction(transaction.serialize(), {
+          skipPreflight: false,
+          preflightCommitment: 'confirmed',
+          maxRetries: 3
+        });
+
+        console.log(`Waiting for confirmation: ${txHash}`);
+        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+
+        await connection.confirmTransaction({
+          signature: txHash,
+          blockhash,
+          lastValidBlockHeight
+        }, 'confirmed');
+
+        // Success: exit retry loop
+        console.log(`✅ Transaction confirmed: ${txHash}`);
+        const executedPrice = parseInt(quoteData.inAmount) / parseInt(quoteData.outAmount);
+        const tokensReceived = parseInt(quoteData.outAmount) / Math.pow(10, 9); // Assuming 9 decimals
+
+        debugger
+        return {
+          txHash,
+          executedPrice,
+          tokensReceived,
+          gasUsed: 'N/A'
+        };
+
+      } catch (error) {
+        console.warn(`❌ Attempt ${attempt} failed: ${error.message}`);
+        if (attempt === 3) throw error;
+        await new Promise(res => setTimeout(res, 1000 * attempt)); // Exponential backoff
+      }
+    }
+
+  } catch (error) {
+    console.error('🚨 Solana buy execution error:', error);
+    throw new Error(`Solana buy failed: ${error.message}`);
+  }
+}
 
   async registerCommands() {
     console.log('🔧 Registering commands...');
@@ -273,7 +515,16 @@ class SmileSnipperBot {
       // Initialize user if not exists
       let userSettings = await userService.getUserSettings(ctx.from.id);
       if (!userSettings) {
-        await userService.initializeUser(ctx.from.id, {
+        // await userService.initializeUser(ctx.from.id, {
+        //   username: ctx.from.username,
+        //   firstName: ctx.from.first_name,
+        //   lastName: ctx.from.last_name,
+        //   chain: 'solana',
+        //   amount: 0.1,
+        //   slippage: 5
+        // });
+
+        await userService.saveUserData(ctx.from.id, {
           username: ctx.from.username,
           firstName: ctx.from.first_name,
           lastName: ctx.from.last_name,
@@ -281,6 +532,7 @@ class SmileSnipperBot {
           amount: 0.1,
           slippage: 5
         });
+
       }
 
       await ctx.reply(`🚀 **Welcome to Smile Snipper Bot!** @${ctx.from.username}
@@ -403,8 +655,10 @@ Type /help to see all commands and start your trading journey!`,
       const loadingMsg = await ctx.reply('🔍 Checking balance...');
       
       try {
-        const wallet = await walletService.getUserWallet(ctx.from.id, chain);
+        // const wallet = await walletService.getUserWallet(ctx.from.id, chain);
         
+        const wallet = await walletService.getWalletInfo(ctx.from.id, chain);
+
         if (!wallet) {
           await ctx.telegram.editMessageText(
             ctx.chat.id, loadingMsg.message_id, undefined,
@@ -421,6 +675,7 @@ Type /help to see all commands and start your trading journey!`,
           { parse_mode: 'Markdown' }
         );
       } catch (error) {
+        console.log(error)
         await ctx.telegram.editMessageText(
           ctx.chat.id, loadingMsg.message_id, undefined,
           '❌ Failed to get balance. Please try again.'
@@ -505,8 +760,10 @@ Use /wallet to create a ${chain.toUpperCase()} wallet if you don't have one.`);
       const chain = userSettings?.chain || 'solana';
       
       try {
-        const wallet = await walletService.getUserWallet(ctx.from.id, chain);
-        
+        //const wallet = await walletService.getUserWallet(ctx.from.id, chain);
+        const wallet = await walletService.getWalletInfo(ctx.from.id, chain);
+
+
         if (!wallet) {
           return ctx.reply('❌ No wallet found. Create one with /wallet first.');
         }
@@ -548,6 +805,43 @@ This will add the wallet to your tracking list for copy trading.`,
       
       try {
         // Add wallet to tracking (implement this functionality)
+        const parts = (ctx.message.text || '').split(' ');
+    // /follow <EVM|SOL> <leaderAddress> [ratio=1]
+    //const chain = (parts[1] || '').toUpperCase();
+    let chain = this.getChainSymbol(((await userService.getUserSettings(ctx.from.id))?.chain?.toUpperCase() || 'SOLANA').toLowerCase())
+    chain = chain.toLowerCase()=='token'?'solana':chain
+    console.log(`user chain is: ${chain}`)
+    // const address = parts[2];
+    const address = parts[1];
+    // const ratio = Number(parts[3] || '1');
+    const ratio = Number('1');
+
+    if (!['EVM','SOL'].includes(chain) || !address) {
+      return ctx.reply('Usage: /follow <EVM|SOL> <address> [ratio]');
+    }
+
+    var _user = await userService.getUserSettings(ctx.from.id)
+    // console.log(_user)
+    const user = await User.findOne({ tgId: String(ctx.from.id) });
+        console.log(user)
+
+    const idx = user.follows.findIndex(f => f.chain === chain && f.address.toLowerCase() === address.toLowerCase());
+    const payload = { chain, address, ratio, active: true };
+    if (idx >= 0) user.follows[idx] = { ...user.follows[idx], ...payload };
+    else user.follows.push(payload);
+    await user.save();
+
+        console.log("calling EVM or Helius")
+    // if (chain === 'EVM') await MoralisService.addAddressEVM(address);
+    // else await HeliusService.addAddress(address);
+    //     console.log("after calling EVM or Helius")
+        if (chain === 'EVM') await MoralisService.addAddressEVM(address);
+    else await MoralisService.addAddressSolana(address);
+
+        console.log("after calling Moralis")
+
+    return ctx.reply(`Following ${address} on ${chain} (ratio ${ratio}x).`);
+
         await ctx.reply(`✅ **Wallet Added Successfully!**
 
 **Address:** \`${walletAddress}\`
@@ -862,9 +1156,47 @@ async function main() {
     await bot.stop();
     process.exit(0);
   });
+  console.log("before listen")
+    await connectMongo();
+    //await seeder();
+  await initQueues();
+  const { app, httpServer } = await createServer();
 
+  // Start Telegram bot
+  //await startBot();
+console.log('after create server')
+  const port = process.env.PORT || 3000;
+      console.log(`port: ${port}`)
+
+  httpServer.listen(port, () => {
+    console.log('before logging listening')
+    logger.info({ port }, 'HTTP server listening');
+    return
+  });
+
+  //app.listen(3000, () => console.log("Unified backend & Telegram bot running on port 3000"));
+//   (async () => {
+//   await connectMongo();
+//   await initQueues();
+//   const { app, httpServer } = await createServer();
+
+//   // Start Telegram bot
+//   //await startBot();
+// console.log('after create server')
+//   const port = process.env.PORT || 3000;
+//       console.log(`port: ${port}`)
+
+//   httpServer.listen(port, () => {
+//     console.log('before logging listening')
+//     logger.info({ port }, 'HTTP server listening');
+//   });
+// })();
+
+  console.log("starting the bot")
   // Start the bot
   await bot.start();
+
+
 }
 
 // Export for potential module usage

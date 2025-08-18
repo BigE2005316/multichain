@@ -21,7 +21,7 @@ async function getTokenFromDexScreener(tokenAddress, chain) {
       'arbitrum': 'arbitrum',
       'base': 'base'
     };
-    
+    debugger
     const response = await axios.get(`${DEXSCREENER_API}/tokens/${tokenAddress}`, {
       headers: {
         'Accept': 'application/json',
@@ -29,7 +29,7 @@ async function getTokenFromDexScreener(tokenAddress, chain) {
       },
       timeout: 5000
     });
-    
+    debugger
     if (response.data && response.data.pairs && response.data.pairs.length > 0) {
       // Get the most liquid pair
       const pairs = response.data.pairs
@@ -57,6 +57,7 @@ async function getTokenFromDexScreener(tokenAddress, chain) {
       }
     }
   } catch (err) {
+    debugger
     console.error('DexScreener API error:', err.message);
   }
   
@@ -95,9 +96,10 @@ async function getTokenData(tokenAddress, chain) {
   }
   
   try {
+    debugger
     // Primary source: DexScreener
     let tokenData = await getTokenFromDexScreener(tokenAddress, chain);
-    
+    debugger
     // If not found on DexScreener, try chain-specific methods
     if (!tokenData) {
       if (chain === 'solana') {
@@ -121,7 +123,7 @@ async function getTokenData(tokenAddress, chain) {
         }
       }
     }
-    
+    debugger
     // Calculate token age if createdAt is available
     if (tokenData && tokenData.createdAt) {
       const created = new Date(tokenData.createdAt);
@@ -191,19 +193,20 @@ async function getTokenData(tokenAddress, chain) {
   }
 }
 
-// Get token info (simplified version of getTokenData)
+// Get token info (simplified version of getTokenData) , follow come method
 async function getTokenInfo(tokenAddress, chain) {
   try {
     // Try to get from cache first
     const cacheKey = `${chain}:${tokenAddress}`;
     const cached = tokenCache.get(cacheKey);
-    
+    debugger
     if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
       return cached.data;
     }
-    
+    debugger
     // Get full token data
     const tokenData = await getTokenData(tokenAddress, chain);
+    debugger
     return tokenData;
   } catch (err) {
     console.error('Error getting token info:', err);
@@ -220,6 +223,49 @@ async function getTokenInfo(tokenAddress, chain) {
     };
   }
 }
+
+  async function getComprehensiveTokenInfo(tokenAddress, chain) {
+    try {
+      debugger
+      // Get basic token data
+      const basicInfo = await getTokenInfo(tokenAddress, chain);
+      debugger
+      if (!basicInfo) {
+        return { success: false, error: 'Token not found or invalid address' };
+      }
+
+      debugger
+      // Get additional market data
+      const marketData = await getAdvancedTokenData(tokenAddress, chain);
+      debugger
+      // Combine all data
+      const comprehensiveInfo = {
+        ...basicInfo,
+        marketCap: marketData?.marketCap || 0,
+        volume24h: marketData?.volume24h || 0,
+        holders: marketData?.holders || 0,
+        traders24h: marketData?.traders24h || 0,
+        liquidity: marketData?.liquidity || 0,
+        liquidityUSD: marketData?.liquidityUSD || 0,
+        priceChange1h: marketData?.priceChange1h || 0,
+        priceChange24h: marketData?.priceChange24h || 0,
+        priceChange7d: marketData?.priceChange7d || 0,
+        age: marketData?.age || 'Unknown',
+        risk: marketData?.risk || 'Medium',
+        verified: marketData?.verified || false,
+        topHolders: marketData?.topHolders || [],
+        recentTrades: marketData?.recentTrades || []
+      };
+
+      debugger
+      return { success: true, data: comprehensiveInfo };
+
+    } catch (error) {
+      debugger
+      console.error('Error getting comprehensive token info:', error);
+      return { success: false, error: 'Failed to analyze token data' };
+    }
+  }
 
 // Get explorer links for token
 function getExplorerLinks(tokenAddress, chain) {
@@ -418,26 +464,188 @@ async function getTokenInfo(tokenAddress, chain = 'solana') {
   }
 }
 
-async function getBasicTokenInfo(tokenAddress, chain) {
-  try {
-    // This would integrate with actual blockchain APIs
-    // For demonstration, providing mock data with realistic structure
+// async function getBasicTokenInfo(tokenAddress, chain) {
+//   try {
+//     // This would integrate with actual blockchain APIs
+//     // For demonstration, providing mock data with realistic structure
     
-    const mockTokenData = {
-      name: getRandomTokenName(),
-      symbol: getRandomTokenSymbol(),
-      decimals: 9,
-      totalSupply: Math.floor(Math.random() * 1000000000) + 1000000,
-      description: 'A revolutionary token bringing innovation to DeFi',
-      website: 'https://token-website.com',
-      twitter: '@TokenProject',
-      telegram: 'https://t.me/tokenproject'
-    };
+//     const mockTokenData = {
+//       name: getRandomTokenName(),
+//       symbol: getRandomTokenSymbol(),
+//       decimals: 9,
+//       totalSupply: Math.floor(Math.random() * 1000000000) + 1000000,
+//       description: 'A revolutionary token bringing innovation to DeFi',
+//       website: 'https://token-website.com',
+//       twitter: '@TokenProject',
+//       telegram: 'https://t.me/tokenproject'
+//     };
 
-    return mockTokenData;
+//     return mockTokenData;
 
-  } catch (error) {
-    console.error('Error getting basic token info:', error);
+//   } catch (error) {
+//     console.error('Error getting basic token info:', error);
+//     return null;
+//   }
+// }
+
+// const axios = require('axios');
+const { ethers } = require('ethers');
+
+const ETHERSCAN_API_KEY = process.env.ETHERSCAN_API_KEY;
+
+//const ETHERSCAN_API_KEY = 'your_etherscan_api_key';
+const BSCSCAN_API_KEY = 'your_bscscan_api_key';
+
+async function getBasicTokenInfo(tokenAddress, chain = 'ethereum') {
+  try {
+    const lowerChain = chain.toLowerCase();
+    let tokenInfo = null;
+    let externalInfo = {};
+    let currentPrice = null;
+
+    debugger
+    switch (lowerChain) {
+      case 'solana': {
+        const res = await axios.get(
+          'https://cdn.jsdelivr.net/gh/solana-labs/token-list@main/src/tokens/solana.tokenlist.json'
+        );
+    debugger
+        const tokenList = res.data.tokens;
+        tokenInfo = tokenList.find((t) => t.address === tokenAddress);
+
+        if (!tokenInfo) throw new Error(`Token ${tokenAddress} not found on Solana.`);
+
+            debugger
+
+        // Get price from CoinGecko using coingeckoId (if available)
+        if (tokenInfo.extensions?.coingeckoId) {
+          const cgRes = await axios.get(
+            `https://api.coingecko.com/api/v3/simple/price`,
+            {
+              params: {
+                ids: tokenInfo.extensions.coingeckoId,
+                vs_currencies: 'usd',
+              },
+            }
+          );
+          currentPrice = cgRes.data[tokenInfo.extensions.coingeckoId]?.usd ?? null;
+    debugger
+
+          const metaRes = await axios.get(
+            `https://api.coingecko.com/api/v3/coins/${tokenInfo.extensions.coingeckoId}`
+          );
+          const cg = metaRes.data;
+    debugger
+
+          externalInfo = {
+            description: cg.description.en || '',
+            website: cg.links.homepage[0],
+            twitter: cg.links.twitter_screen_name
+              ? `https://twitter.com/${cg.links.twitter_screen_name}`
+              : '',
+            telegram: cg.links.telegram_channel_identifier
+              ? `https://t.me/${cg.links.telegram_channel_identifier}`
+              : '',
+          };
+        }
+    debugger
+
+        return {
+          chain: 'solana',
+          address: tokenAddress,
+          name: tokenInfo.name,
+          symbol: tokenInfo.symbol,
+          currentPrice,
+          decimals: tokenInfo.decimals,
+          logoURI: tokenInfo.logoURI || '',
+          ...externalInfo,
+        };
+      }
+
+      case 'ethereum':
+      case 'bnb': {
+        const apiUrl =
+          lowerChain === 'ethereum'
+            ? `https://api.etherscan.io/api`
+            : `https://api.bscscan.com/api`;
+
+        const apiKey =
+          lowerChain === 'ethereum' ? ETHERSCAN_API_KEY : BSCSCAN_API_KEY;
+
+        const res = await axios.get(apiUrl, {
+          params: {
+            module: 'token',
+            action: 'tokeninfo',
+            contractaddress: tokenAddress,
+            apikey: apiKey,
+          },
+        });
+
+        if (!res.data || !res.data.result || res.data.result.length === 0)
+          throw new Error(`Token ${tokenAddress} not found on ${lowerChain}`);
+
+        const info = res.data.result[0];
+
+        // Try get CoinGecko price
+        const symbol = info.symbol.toLowerCase();
+        try {
+          const cgSearch = await axios.get(
+            `https://api.coingecko.com/api/v3/search?query=${symbol}`
+          );
+
+          const matched = cgSearch.data.coins.find(
+            (c) => c.symbol.toLowerCase() === symbol
+          );
+
+          if (matched) {
+            const priceRes = await axios.get(
+              `https://api.coingecko.com/api/v3/simple/price`,
+              {
+                params: {
+                  ids: matched.id,
+                  vs_currencies: 'usd',
+                },
+              }
+            );
+            currentPrice = priceRes.data[matched.id]?.usd ?? null;
+
+            const metaRes = await axios.get(
+              `https://api.coingecko.com/api/v3/coins/${matched.id}`
+            );
+            const cg = metaRes.data;
+            externalInfo = {
+              description: cg.description.en || '',
+              website: cg.links.homepage[0],
+              twitter: cg.links.twitter_screen_name
+                ? `https://twitter.com/${cg.links.twitter_screen_name}`
+                : '',
+              telegram: cg.links.telegram_channel_identifier
+                ? `https://t.me/${cg.links.telegram_channel_identifier}`
+                : '',
+            };
+          }
+        } catch (e) {
+          console.warn('Unable to fetch CoinGecko price:', e.message);
+        }
+
+        return {
+          chain: lowerChain,
+          address: tokenAddress,
+          name: info.tokenName,
+          symbol: info.symbol,
+          decimals: parseInt(info.decimals),
+          totalSupply: info.totalSupply,
+          currentPrice,
+          logoURI: '',
+          ...externalInfo,
+        };
+      }
+
+      default:
+        throw new Error(`Unsupported chain: ${chain}`);
+    }
+  } catch (err) {
+    console.error(`Error fetching token info for ${tokenAddress} on ${chain}:`, err.message);
     return null;
   }
 }
@@ -1196,6 +1404,7 @@ async function getNativeTokenPrice(chain) {
 
 // Export functions
 module.exports = {
+  getComprehensiveTokenInfo,
   getTokenInfo,
   getAdvancedTokenData,
   analyzeToken,

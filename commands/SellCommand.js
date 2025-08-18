@@ -1,6 +1,7 @@
 // commands/SellCommand.js - Clean Sell Command Implementation
 const { getServiceManager } = require('../core/ServiceManager');
-
+const userService = require('../users/userService');
+const tradingService = require('../services/advancedTradingEngine')
 class SellCommand {
   constructor(botCore) {
     this.botCore = botCore;
@@ -47,7 +48,7 @@ class SellCommand {
       const userId = ctx.from.id;
       
       // Get user service
-      const userService = await this.serviceManager.getService('userService');
+      //const userService = await this.serviceManager.getService('userService');
       const userSettings = await userService.getUserSettings(userId);
       
       if (!userSettings) {
@@ -58,9 +59,10 @@ class SellCommand {
 
       try {
         // Get user positions
-        const tradingService = await this.serviceManager.getService('tradingService');
-        const positions = await tradingService.getUserPositions(userId);
-        
+        // const tradingService = await this.serviceManager.getService('tradingService');
+        // const positions = await tradingService.getUserPositions(userId);
+          const positions = await userService.getUserPositions(userId);
+
         if (!positions || positions.length === 0) {
           await ctx.telegram.editMessageText(
             ctx.chat.id, loadingMsg.message_id, undefined,
@@ -69,6 +71,7 @@ class SellCommand {
           return;
         }
 
+        debugger
         // Parse sell parameters
         const sellParams = this.parseSellArguments(args, positions);
         
@@ -278,7 +281,8 @@ class SellCommand {
     try {
       const loadingMsg = await ctx.reply('⚡ Executing sell order...');
       
-      const tradingService = await this.serviceManager.getService('tradingService');
+      //const tradingService = await this.serviceManager.getService('tradingService');
+      //userService
       const results = [];
       
       for (const position of sellData.sellParams.selectedPositions) {
@@ -296,10 +300,11 @@ class SellCommand {
           amount: sellAmount,
           position: position
         });
-        
+        debugger
         results.push({ ...result, tokenSymbol: position.tokenSymbol });
       }
 
+      debugger
       this.botCore.clearSession(ctx);
 
       // Create results message
@@ -307,31 +312,36 @@ class SellCommand {
       
       let totalProceeds = 0;
       let successCount = 0;
-      
+      debugger
       for (const result of results) {
         if (result.success) {
+          debugger
           successCount++;
           totalProceeds += result.proceeds;
           message += `✅ **${result.tokenSymbol}:**\n`;
-          message += `• Sold: ${result.amountSold.toFixed(4)} tokens\n`;
-          message += `• Proceeds: $${result.proceeds.toFixed(2)}\n`;
+          message += `• Sold: ${result.amountSold.toFixed(6)} tokens\n`;
+          message += `• Proceeds: $${result.proceeds?.toFixed(6)}\n`;
           message += `• TX: \`${result.txHash}\`\n\n`;
         } else {
+          debugger
           message += `❌ **${result.tokenSymbol}:** ${result.message}\n\n`;
         }
       }
-      
+      debugger
       message += `📊 **Summary:**\n`;
       message += `• **Successful:** ${successCount}/${results.length}\n`;
-      message += `• **Total Proceeds:** $${totalProceeds.toFixed(2)}\n`;
+      message += `• **Total Proceeds:** $${totalProceeds?.toFixed(6)}\n`;
       message += `⏰ **Time:** ${new Date().toLocaleString()}`;
 
+      
       await ctx.telegram.editMessageText(
         ctx.chat.id, loadingMsg.message_id, undefined,
         message, { parse_mode: 'Markdown' }
       );
 
     } catch (error) {
+      debugger
+      error.getLogs && error.getLogs()
       console.error('Sell execution error:', error);
       await ctx.reply('❌ Failed to execute sell order. Please try again.');
       this.botCore.clearSession(ctx);

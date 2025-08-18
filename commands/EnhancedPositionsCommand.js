@@ -165,7 +165,9 @@ class EnhancedPositionsCommand {
     };
 
     try {
-      const wallet = await walletService.getUserWallet(userId, chain);
+      const wallet = await walletService.getWalletInfo(ctx.from.id, chain);
+      
+      // const wallet = await walletService.getUserWallet(userId, chain);
       if (!wallet) return chainData;
 
       // Get wallet balance including native and tokens

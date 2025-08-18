@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const userService = require('../users/userService');
 const { getRPCManager } = require('./rpcManager');
 const axios = require('axios');
+const { decrypt } = require('dotenv');
 
 // Enhanced encryption using AES-256-GCM for better security
 const ENCRYPTION_KEY = process.env.WALLET_ENCRYPTION_KEY || crypto.randomBytes(32).toString('hex');
@@ -100,9 +101,11 @@ class WalletService {
   generateSolanaWallet() {
     try {
       const keypair = Keypair.generate();
+      const secretKey = Buffer.from(keypair.secretKey).toString('hex')
+      //const encryptedKey = this.encrypt(secretKey)
       return {
         address: keypair.publicKey.toString(),
-        privateKey: Buffer.from(keypair.secretKey).toString('hex'),
+        privateKey: secretKey,
         mnemonic: null,
         chain: 'solana'
       };
@@ -262,6 +265,21 @@ class WalletService {
       throw error;
     }
   }
+
+
+createJupiterWalletAdapter(keypair) {
+  return {
+    publicKey: keypair.publicKey,
+    async signTransaction(tx) {
+      tx.partialSign(keypair);
+      return tx;
+    },
+    async signAllTransactions(txs) {
+      txs.forEach(tx => tx.partialSign(keypair));
+      return txs;
+    }
+  };
+}
 
   // Get real wallet balance from blockchain with caching
   async getWalletBalance(address, chain, retries = 3) {
@@ -878,5 +896,8 @@ module.exports = {
   handleDecryptionFailure: walletService.handleDecryptionFailure.bind(walletService),
   regenerateWallet: walletService.regenerateWallet.bind(walletService),
   getWalletInfo: walletService.getWalletInfo.bind(walletService),
-  refreshWalletData: walletService.refreshWalletData.bind(walletService)
+  refreshWalletData: walletService.refreshWalletData.bind(walletService),
+    decrypt: walletService.decrypt.bind(walletService),
+    createJupiterWalletAdapter: walletService.createJupiterWalletAdapter.bind(walletService)
+
 };

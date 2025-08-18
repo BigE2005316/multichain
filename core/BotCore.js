@@ -204,6 +204,7 @@ class BotCore {
 
   // Service registration
   registerService(name, service) {
+    debugger
     if (!service || typeof service !== 'object') {
       throw new Error(`Service ${name} must be an object`);
     }

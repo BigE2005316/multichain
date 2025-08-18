@@ -40,7 +40,8 @@ class EnhancedSellCommand {
       const activeChain = chain || userSettings.activeChain || 'ethereum';
       
       // Validate user has wallet for this chain
-      const wallet = await walletService.getUserWallet(userId, activeChain);
+      const wallet = await walletService.getWalletInfo(userId, activeChain);
+      //const wallet = await walletService.getUserWallet(userId, activeChain);
       if (!wallet) {
         await ctx.telegram.editMessageText(
           ctx.chat.id, 
@@ -247,7 +248,8 @@ class EnhancedSellCommand {
 
   async getPositionInfo(userId, tokenAddress, chain) {
     try {
-      const wallet = await walletService.getUserWallet(userId, chain);
+      //const wallet = await walletService.getUserWallet(userId, chain);
+      const wallet = await walletService.getWalletInfo(userId, chain);
       if (!wallet) {
         return { hasPosition: false, balance: 0 };
       }

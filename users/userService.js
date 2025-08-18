@@ -30,6 +30,26 @@ async function initRedis() {
   return redisClient;
 }
 
+async function recordTransaction(userId, transactionData) {
+  const userData = await ensureUser(userId);
+
+  if (!userData.transactions) {
+    userData.transactions = [];
+  }
+
+  userData.transactions.push({
+    ...transactionData,
+    timestamp: new Date().toISOString()
+  });
+
+  // Limit to last 100 transactions
+  if (userData.transactions.length > 100) {
+    userData.transactions = userData.transactions.slice(-100);
+  }
+
+  await saveUserData(userId, userData);
+}
+
 // Load all users from file (fallback)
 function loadUserData() {
   try {
@@ -384,7 +404,7 @@ async function setSellMode(userId, mode) {
 }
 
 // Position tracking for copy trades
-async function addPosition(userId, tokenAddress, amount, price, sourceWallet) {
+async function addPosition(userId, tokenAddress, amount, price, sourceWallet, tokenName='Unknown Token', tokenSymbol='Unknown') {
   const userData = await ensureUser(userId);
   
   if (!userData.positions) {
@@ -416,7 +436,8 @@ async function addPosition(userId, tokenAddress, amount, price, sourceWallet) {
   const totalValue = position.totalAmount * position.avgPrice + amount * price;
   position.totalAmount += amount;
   position.avgPrice = totalValue / position.totalAmount;
-  
+  position.tokenName = tokenName || position.tokenName
+  position.tokenSymbol = tokenSymbol || position.tokenSymbol
   await saveUserData(userId, userData);
   
   return position;
@@ -475,8 +496,9 @@ async function getUserPositions(userId) {
   if (!userData.positions) {
     return positions;
   }
-  
+  debugger
   for (const [tokenAddress, position] of Object.entries(userData.positions)) {
+    debugger
     positions.push({
       tokenAddress,
       tokenSymbol: position.tokenSymbol || 'Unknown',
@@ -869,6 +891,7 @@ module.exports = {
   getAdminData,
   saveAdminData,
   updateLastActive,
+  recordTransaction,
   // Add the missing saveUserData function
   saveUserData
 };

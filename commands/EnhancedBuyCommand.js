@@ -80,7 +80,9 @@ class EnhancedBuyCommand {
       // Validate user has wallet for this chain with better error handling
       let wallet;
       try {
-        wallet = await walletService.getUserWallet(userId, activeChain);
+        //wallet = await walletService.getUserWallet(userId, activeChain);
+        wallet = await walletService.getWalletInfo(ctx.from.id, activeChain);
+
         if (!wallet) {
           await ctx.telegram.editMessageText(
             ctx.chat.id, 

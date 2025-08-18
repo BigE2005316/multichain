@@ -2,6 +2,8 @@
 const { getServiceManager } = require('../core/ServiceManager');
 const userService = require('../users/userService');
 const tokenDataService = require('../services/tokenDataService');
+const axios = require('axios');
+//const tokenDataService = require('../services/tokenDataService');
 
 class PositionsCommand {
   constructor(botCore) {
@@ -33,6 +35,7 @@ class PositionsCommand {
       const loadingMsg = await ctx.reply('📊 Loading your positions...');
 
       try {
+        debugger
         // Get user positions from trading history
         const positions = await this.getUserPositions(userId);
         
@@ -76,38 +79,86 @@ You don't have any active trading positions yet.
     }
   }
 
-  async getUserPositions(userId) {
-    try {
-      // This would typically get data from a database
-      // For now, we'll simulate with some sample data
-      const mockPositions = [
-        {
-          tokenAddress: 'So11111111111111111111111111111111111111112',
-          tokenName: 'Wrapped SOL',
-          tokenSymbol: 'SOL',
-          balance: 0.5,
-          averageBuyPrice: 23.45,
-          currentPrice: 25.12,
-          investedAmount: 11.725,
-          currentValue: 12.56,
-          pnl: 0.835,
-          pnlPercent: 7.12,
+async getUserPositions(userId) {
+  try {
+    const positions = await userService.getUserPositions(userId);
+    debugger
+    const mappedPositions = await Promise.all(
+      positions.map(async (pos) => {
+        const balance = Number(pos.amount);
+        const averageBuyPrice = Number(pos.avgBuyPrice);
+        debugger
+        //const tokenInfo = await tokenDataService.getBasicTokenInfo(pos.tokenAddress, pos.chain);
+        const tokenInfo = await tokenDataService.getComprehensiveTokenInfo(pos.tokenAddress, pos.chain);
+        const data = tokenInfo.data
+        debugger
+        const currentValue = balance * data.currentPrice;
+        //const currentValue = balance * data.priceUsd;
+        const investedAmount = balance * averageBuyPrice;
+        const pnl = currentValue - investedAmount;
+        const pnlPercent = investedAmount !== 0 ? (pnl / investedAmount) * 100 : 0;
+
+        debugger
+        return {
+          tokenAddress: pos.tokenAddress,
+          tokenName: data.name|| pos.tokenName ||  'Unknown Token',
+          tokenSymbol: data.symbol || pos.tokenSymbol || 'Unknown',
+          balance: balance,
+          averageBuyPrice: averageBuyPrice,
+          // currentPrice: tokenInfo.priceUsd,
+          currentPrice: data.currentPrice,
+          investedAmount: investedAmount,
+          currentValue: currentValue,
+          pnl: pnl,
+          pnlPercent: pnlPercent,
           lastUpdated: Date.now()
-        }
-      ];
+        };
+      })
+    );
 
-      return mockPositions;
-
-    } catch (error) {
-      console.error('Error getting user positions:', error);
-      return [];
-    }
+    return mappedPositions;
+  } catch (error) {
+    debugger
+    console.error('Error getting user positions:', error);
+    return [];
   }
+}
+
+// /**
+//  * Fetches the current USD price of a token on Solana via Jupiter Aggregator.
+//  * @param {string} tokenAddress - The token's mint address (e.g. USDC, SOL).
+//  * @returns {Promise<number>} - The current price in USD.
+//  */
+// async getCurrentPriceForToken(tokenAddress) {
+//   // try {
+//   //   const response = await axios.get(`https://price.jup.ag/v4/price?ids=${tokenAddress}`);
+//   //   const data = response.data;
+
+//   //   if (data && data.data && data.data[tokenAddress]) {
+//   //     return data.data[tokenAddress].price;
+//   //   }
+
+//   //   console.warn(`Price not found for token: ${tokenAddress}`);
+//   //   return 0;
+//   // } catch (error) {
+//   //   console.error(`Error fetching price for token ${tokenAddress}:`, error.message);
+//   //   return 0;
+//   // }
+//   try {
+//     debugger
+//     const res = await axios.get(`https://api.coingecko.com/api/v3/simple/price?ids=${tokenAddress}&vs_currencies=usd`);
+//     debugger
+//     return res.data[tokenAddress].usd;
+//   } catch (err) {
+//     console.error('CoinGecko error:', err.message);
+//     return 0;
+//   }
+// }
 
   async createPositionsMessage(positions, chain) {
     const chainEmoji = this.getChainEmoji(chain);
     const chainSymbol = this.getChainSymbol(chain);
-
+    debugger
     let message = `📊 **Your Trading Portfolio** ${chainEmoji}\n\n`;
     
     // Calculate totals
@@ -116,6 +167,7 @@ You don't have any active trading positions yet.
     let totalPnL = 0;
     
     for (const position of positions) {
+      debugger
       totalInvested += position.investedAmount;
       totalValue += position.currentValue;
       totalPnL += position.pnl;
@@ -125,12 +177,12 @@ You don't have any active trading positions yet.
     
     // Portfolio Summary
     message += `💰 **Portfolio Summary:**\n`;
-    message += `• **Total Invested:** $${totalInvested.toFixed(2)}\n`;
-    message += `• **Current Value:** $${totalValue.toFixed(2)}\n`;
+    message += `• **Total Invested:** $${totalInvested.toFixed(6)}\n`;
+    message += `• **Current Value:** $${totalValue.toFixed(6)}\n`;
     
     const pnlEmoji = totalPnL >= 0 ? '📈' : '📉';
     const pnlColor = totalPnL >= 0 ? '+' : '';
-    message += `• **Total P&L:** ${pnlEmoji} ${pnlColor}$${totalPnL.toFixed(2)} (${pnlColor}${totalPnLPercent.toFixed(2)}%)\n`;
+    message += `• **Total P&L:** ${pnlEmoji} ${pnlColor}$${totalPnL.toFixed(6)} (${pnlColor}${totalPnLPercent.toFixed(2)}%)\n`;
     message += `• **Positions:** ${positions.length}\n\n`;
     
     // Individual Positions
@@ -144,10 +196,12 @@ You don't have any active trading positions yet.
       message += `**${i + 1}. ${pos.tokenName}** (${pos.tokenSymbol})\n`;
       message += `• **Balance:** ${pos.balance.toFixed(4)} ${pos.tokenSymbol}\n`;
       message += `• **Avg Buy:** $${pos.averageBuyPrice.toFixed(6)}\n`;
+      debugger
+      // message += `• **Current:** $${pos.currentPrice.currentPrice.toFixed(6)}\n`;
       message += `• **Current:** $${pos.currentPrice.toFixed(6)}\n`;
-      message += `• **Invested:** $${pos.investedAmount.toFixed(2)}\n`;
-      message += `• **Value:** $${pos.currentValue.toFixed(2)}\n`;
-      message += `• **P&L:** ${positionPnLEmoji} ${positionPnLColor}$${pos.pnl.toFixed(2)} (${positionPnLColor}${pos.pnlPercent.toFixed(2)}%)\n`;
+      message += `• **Invested:** $${pos.investedAmount.toFixed(6)}\n`;
+      message += `• **Value:** $${pos.currentValue.toFixed(6)}\n`;
+      message += `• **P&L:** ${positionPnLEmoji} ${positionPnLColor}$${pos.pnl.toFixed(6)} (${positionPnLColor}${pos.pnlPercent.toFixed(6)}%)\n`;
       message += `• **Contract:** \`${pos.tokenAddress}\`\n`;
       
       if (i < positions.length - 1) {

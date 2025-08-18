@@ -14,22 +14,22 @@ class RPCManager {
     // Enhanced RPC configurations with multiple chains
     this.rpcConfigs = {
       solana: [
-        { url: process.env.ALCHEMY_SOLANA_URL || 'https://api.mainnet-beta.solana.com', priority: 1, maxRequestsPerSecond: 5 }
+        { url: process.env.ALCHEMY_SOLANA_URL || 'https://api.mainnet-beta.solana.com', wsEndpoint: process.env.ALCHEMY_SOLANA_WS || 'wss://api.mainnet-beta.solana.com', priority: 1, maxRequestsPerSecond: 5 }
       ],
       ethereum: [
-        { url: process.env.ALCHEMY_ETH_URL || 'https://ethereum.blockpi.network/v1/rpc/public', priority: 1, maxRequestsPerSecond: 5 }
+        { url: process.env.ALCHEMY_ETH_URL || 'https://ethereum.blockpi.network/v1/rpc/public', wsEndpoint: process.env.ALCHEMY_ETH_WS || 'wss://api.mainnet-beta.solana.com', priority: 1, maxRequestsPerSecond: 5 }
       ],
       bsc: [
-        { url: process.env.ALCHEMY_BSC_URL || 'https://bsc-dataseed.binance.org/', priority: 1, maxRequestsPerSecond: 5 }
+        { url: process.env.ALCHEMY_BSC_URL || 'https://bsc-dataseed.binance.org/', wsEndpoint: process.env.ALCHEMY_BSC_WS || 'wss://bsc-dataseed.binance.org/', priority: 1, maxRequestsPerSecond: 5 }
       ],
       polygon: [
-        { url: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com/', priority: 1, maxRequestsPerSecond: 5 }
+        { url: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com/', wsEndpoint: process.env.POLYGON_RPC_WS || 'wss://polygon-rpc.com/', priority: 1, maxRequestsPerSecond: 5 }
       ],
       arbitrum: [
-        { url: process.env.ARBITRUM_RPC_URL || 'https://arb1.arbitrum.io/rpc', priority: 1, maxRequestsPerSecond: 5 }
+        { url: process.env.ARBITRUM_RPC_URL || 'https://arb1.arbitrum.io/rpc', wsEndpoint: process.env.ARBITRUM_RPC_WS || 'wss://arb1.arbitrum.io/rpc', priority: 1, maxRequestsPerSecond: 5 }
       ],
       base: [
-        { url: process.env.BASE_RPC_URL || 'https://mainnet.base.org', priority: 1, maxRequestsPerSecond: 5 }
+        { url: process.env.BASE_RPC_URL || 'https://mainnet.base.org', wsEndpoint: process.env.BASE_RPC_WS || 'wss://mainnet.base.org', priority: 1, maxRequestsPerSecond: 5 }
       ]
     };
     
@@ -55,9 +55,10 @@ class RPCManager {
             if (chain === 'solana') {
               connection = new Connection(config.url, {
                 commitment: 'confirmed',
+                //wsEndpoint: config.wsEndpoint,
                 confirmTransactionInitialTimeout: 60000,
                 disableRetryOnRateLimit: false
-              });
+              }, config.wsEndpoint );
             } else {
               // Create provider without immediate network detection to prevent spam
               connection = new JsonRpcProvider(config.url, null, {

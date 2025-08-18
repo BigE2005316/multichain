@@ -3,7 +3,7 @@ const { getServiceManager } = require('../core/ServiceManager');
 const userService = require('../users/userService');
 const walletService = require('../services/walletService');
 const tokenDataService = require('../services/tokenDataService');
-const realTradingExecutor = require('../services/realTradingExecutor');
+const realTradingExecutor = require('../services/realTradingExecutor').RealTradingExecutor;
 
 class BuyCommand {
   constructor(botCore) {
@@ -69,8 +69,9 @@ class BuyCommand {
       }
 
       // Validate chain and wallet
-      const wallet = await walletService.getUserWallet(userId, chain);
+      //const wallet = await walletService.getUserWallet(userId, chain);
       
+      const wallet = await walletService.getWalletInfo(userId, chain);
       if (!wallet) {
         return ctx.reply(`❌ No ${chain.toUpperCase()} wallet found. Please create one with /wallet`);
       }
@@ -79,9 +80,10 @@ class BuyCommand {
       const loadingMsg = await ctx.reply('🔍 Analyzing token and fetching comprehensive data...');
 
       try {
+        debugger
         // Get comprehensive token information
         const tokenInfo = await this.getComprehensiveTokenInfo(tokenAddress, chain);
-        
+        debugger
         if (!tokenInfo.success) {
           await ctx.telegram.editMessageText(
             ctx.chat.id, loadingMsg.message_id, undefined,
@@ -90,12 +92,13 @@ class BuyCommand {
           return;
         }
 
+        debugger
         // Calculate trade details
         const tradeDetails = await this.calculateTradeDetails(userId, tokenInfo.data, amount, chain);
-        
+        debugger
         // Create comprehensive confirmation message
         const confirmationMessage = this.createComprehensiveConfirmationMessage(tokenInfo.data, tradeDetails, chain);
-        
+        debugger
         // Store trade details in session
         this.botCore.setState(ctx, 'awaiting_buy_confirmation', {
           tokenInfo: tokenInfo.data,
@@ -104,6 +107,7 @@ class BuyCommand {
           timestamp: Date.now()
         });
 
+        debugger
         await ctx.telegram.editMessageText(
           ctx.chat.id, loadingMsg.message_id, undefined,
           confirmationMessage,
@@ -186,8 +190,9 @@ class BuyCommand {
   }
 
   async calculateTradeDetails(userId, tokenInfo, amount, chain) {
+    debugger
     const userSettings = await userService.getUserSettings(userId);
-    
+    debugger
     const slippage = userSettings.slippage || 5;
     const devFeePercent = parseFloat(process.env.DEV_FEE_PERCENT || '3');
     const devFee = amount * (devFeePercent / 100);
@@ -196,7 +201,7 @@ class BuyCommand {
     // Estimate tokens to receive
     let estimatedTokens = 0;
     let priceImpact = 0;
-    
+    debugger
     try {
       if (tokenInfo.price && tokenInfo.price > 0) {
         estimatedTokens = netAmount / tokenInfo.price;
@@ -204,9 +209,10 @@ class BuyCommand {
         priceImpact = Math.min((amount / (tokenInfo.liquidityUSD || 1000000)) * 100, 15);
       }
     } catch (error) {
+      debugger
       console.error('Error calculating trade details:', error);
     }
-
+    debugger
     return {
       amount,
       netAmount,
@@ -327,8 +333,16 @@ class BuyCommand {
       const loadingMsg = await ctx.reply('⚡ Executing buy order on blockchain...');
       
       // Execute the trade using real trading executor
-      const result = await realTradingExecutor.executeBuy({
-        userId: ctx.from.id,
+      // const result = await realTradingExecutor.executeBuy({
+      //   userId: ctx.from.id,
+      //   tokenAddress: tradeData.tokenInfo.address,
+      //   amount: tradeData.tradeDetails.amount,
+      //   slippage: tradeData.tradeDetails.slippage,
+      //   chain: tradeData.chain
+      // });
+      var userId = ctx.from.id
+      var rte = new realTradingExecutor()
+      const result = await rte.executeBuyOrder(userId, {
         tokenAddress: tradeData.tokenInfo.address,
         amount: tradeData.tradeDetails.amount,
         slippage: tradeData.tradeDetails.slippage,

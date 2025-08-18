@@ -1,5 +1,5 @@
 // services/realTradingExecutor.js - Enhanced Real Blockchain Trading Execution Engine
-const { Connection, Keypair, PublicKey, Transaction, sendAndConfirmTransaction, LAMPORTS_PER_SOL, SystemProgram } = require('@solana/web3.js');
+const { Connection, Keypair, PublicKey, Transaction, VersionedTransaction, sendAndConfirmTransaction, LAMPORTS_PER_SOL, SystemProgram } = require('@solana/web3.js');
 const { ethers, parseUnits, formatUnits } = require('ethers');
 const { getRPCManager } = require('./rpcManager');
 const walletService = require('./walletService');
@@ -201,7 +201,7 @@ class RealTradingExecutor {
 
       // Add position tracking
       const tokenInfo = await tokenDataService.getTokenInfo(tokenAddress, chain);
-      await userService.addPosition(userId, tokenAddress, result.tokensReceived, result.executedPrice, 'manual_buy');
+      await userService.addPosition(userId, tokenAddress, result.tokensReceived, result.executedPrice, 'manual_buy',tokenInfo?.name, tokenInfo?.symbol);
 
       console.log(`✅ BUY order ${tradeId} executed successfully`);
 
@@ -356,98 +356,221 @@ class RealTradingExecutor {
   }
 
   // Enhanced Solana buy via Jupiter with better error handling
-  async executeSolanaBuy(privateKeyHex, tokenAddress, amount, slippage) {
-    try {
-      const connection = await this.rpcManager.getSolanaConnection();
+  // async executeSolanaBuy(privateKeyHex, tokenAddress, amount, slippage) {
+  //   try {
+  //     const connection = await this.rpcManager.getSolanaConnection();
       
-      // Convert hex private key to Keypair
-      const secretKey = new Uint8Array(Buffer.from(privateKeyHex, 'hex'));
-      const wallet = Keypair.fromSecretKey(secretKey);
+  //     // Convert hex private key to Keypair
+  //     const secretKey = new Uint8Array(Buffer.from(privateKeyHex, 'hex'));
+  //     const wallet = Keypair.fromSecretKey(secretKey);
 
-      const amountLamports = Math.floor(amount * LAMPORTS_PER_SOL);
+  //     const amountLamports = Math.floor(amount * LAMPORTS_PER_SOL);
 
-      // Get quote from Jupiter with retry logic
-      let quoteData;
-      for (let attempt = 1; attempt <= 3; attempt++) {
-        try {
-          const quoteResponse = await axios.get(
-            `${JUPITER_API}/quote?inputMint=${COMMON_TOKENS.solana.SOL}&outputMint=${tokenAddress}&amount=${amountLamports}&slippageBps=${slippage * 100}`,
-            { timeout: 10000 }
-          );
-          
-          if (!quoteResponse.data) {
-            throw new Error('No quote data received');
-          }
+  //     // Get quote from Jupiter with retry logic
+  //     let quoteData;
+  //     for (let attempt = 1; attempt <= 3; attempt++) {
+  //       try {
+  //         console.log( `${JUPITER_API}/quote?inputMint=${COMMON_TOKENS.solana.SOL}&outputMint=${tokenAddress}&amount=${amountLamports}&slippageBps=${slippage * 100}`)
+  //         const quoteResponse = await axios.get(
+  //           `${JUPITER_API}/quote?inputMint=${COMMON_TOKENS.solana.SOL}&outputMint=${tokenAddress}&amount=${amountLamports}&slippageBps=${slippage * 100}`,
+  //           { timeout: 10000 }
+  //         );
+  //         if (!quoteResponse.data) {
+  //           throw new Error('No quote data received');
+  //         }
 
-          quoteData = quoteResponse.data;
-          break;
-        } catch (error) {
-          console.warn(`Jupiter quote attempt ${attempt} failed:`, error.message);
-          if (attempt === 3) throw error;
-          await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
-        }
+  //         quoteData = quoteResponse.data;
+  //         break;
+  //       } catch (error) {
+  //         console.warn(`Jupiter quote attempt ${attempt} failed:`, error.message);
+  //         if (attempt === 3) throw error;
+  //         await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+  //       }
+  //     }
+
+  //     // Get swap transaction
+  //     const swapResponse = await axios.post(JUPITER_SWAP_API, {
+  //       quoteResponse: quoteData,
+  //       userPublicKey: wallet.publicKey.toString(),
+  //       wrapAndUnwrapSol: true,
+  //       dynamicComputeUnitLimit: true,
+  //       prioritizationFeeLamports: 100000 // 0.0001 SOL priority fee
+  //     }, { timeout: 10000 });
+
+  //     if (!swapResponse.data?.swapTransaction) {
+  //       throw new Error('No swap transaction received');
+  //     }
+
+  //     const { swapTransaction } = swapResponse.data;
+
+  //     // Deserialize and sign transaction
+  //     const transactionBuf = Buffer.from(swapTransaction, 'base64');
+  //     //const transaction = Transaction.from(transactionBuf);
+  //     const transaction = VersionedTransaction.deserialize(transactionBuf);
+  //     transaction.sign([wallet]);
+
+  //     // Execute transaction with retry
+  //     let txHash;
+  //     for (let attempt = 1; attempt <= 3; attempt++) {
+  //       try {
+  //         txHash = await connection.sendRawTransaction(transaction.serialize(), {
+  //           skipPreflight: false,
+  //           preflightCommitment: 'confirmed',
+  //           maxRetries: 3
+  //         });
+  //         break;
+  //       } catch (error) {
+  //         console.warn(`Solana transaction attempt ${attempt} failed:`, error.message);
+  //         if (attempt === 3) throw error;
+  //         await new Promise(resolve => setTimeout(resolve, 2000 * attempt));
+  //       }
+  //     }
+
+  //     // Wait for confirmation with timeout
+  //     // const confirmationPromise = connection.confirmTransaction(txHash, 'confirmed');
+  //     // const timeoutPromise = new Promise((_, reject) => 
+  //     //   setTimeout(() => reject(new Error('Transaction confirmation timeout')), 60000)
+  //     // );
+
+  //     // await Promise.race([confirmationPromise, timeoutPromise]);
+
+  //     const latestBlockhash = await connection.getLatestBlockhash('confirmed');
+
+  //   await connection.confirmTransaction(
+  //     {
+  //       signature: txHash,
+  //       blockhash: latestBlockhash.blockhash,
+  //       lastValidBlockHeight: latestBlockhash.lastValidBlockHeight
+  //     },
+  //     'confirmed'
+  //   );
+
+  //     const executedPrice = parseInt(quoteData.inAmount) / parseInt(quoteData.outAmount);
+  //     const tokensReceived = parseInt(quoteData.outAmount) / Math.pow(10, 9); // Assuming 9 decimals
+
+  //     return {
+  //       txHash,
+  //       executedPrice,
+  //       tokensReceived,
+  //       gasUsed: 'N/A'
+  //     };
+
+  //   } catch (error) {
+  //     console.error('Solana buy execution error:', error);
+  //     throw new Error(`Solana buy failed: ${error.message}`);
+  //   }
+  // }
+
+  async executeSolanaBuy(privateKeyHex, tokenAddress, amount, slippage) {
+  try {
+    const connection = await this.rpcManager.getSolanaConnection();
+
+    debugger;
+    // Convert hex private key to Keypair
+    const secretKey = new Uint8Array(Buffer.from(privateKeyHex, 'hex'));
+    const wallet = Keypair.fromSecretKey(secretKey);
+
+    const amountLamports = Math.floor(amount * LAMPORTS_PER_SOL);
+
+    // Get quote from Jupiter with retry logic
+    let quoteData;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const quoteUrl = `${JUPITER_API}/quote?inputMint=${COMMON_TOKENS.solana.SOL}&outputMint=${tokenAddress}&amount=${amountLamports}&slippageBps=${slippage * 100}`;
+        console.log(quoteUrl);
+
+        const quoteResponse = await axios.get(quoteUrl, { timeout: 10000 });
+        if (!quoteResponse.data) throw new Error('No quote data received');
+
+        quoteData = quoteResponse.data;
+        break;
+      } catch (error) {
+        console.warn(`Jupiter quote attempt ${attempt} failed:`, error.message);
+        if (attempt === 3) throw error;
+        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
       }
+    }
 
-      // Get swap transaction
-      const swapResponse = await axios.post(JUPITER_SWAP_API, {
+    // Get swap transaction from Jupiter
+    const swapResponse = await axios.post(
+      JUPITER_SWAP_API,
+      {
         quoteResponse: quoteData,
         userPublicKey: wallet.publicKey.toString(),
         wrapAndUnwrapSol: true,
         dynamicComputeUnitLimit: true,
-        prioritizationFeeLamports: 100000 // 0.0001 SOL priority fee
-      }, { timeout: 10000 });
+        prioritizationFeeLamports: 100000
+      },
+      { timeout: 10000 }
+    );
 
-      if (!swapResponse.data?.swapTransaction) {
-        throw new Error('No swap transaction received');
-      }
-
-      const { swapTransaction } = swapResponse.data;
-
-      // Deserialize and sign transaction
-      const transactionBuf = Buffer.from(swapTransaction, 'base64');
-      const transaction = Transaction.from(transactionBuf);
-      transaction.sign(wallet);
-
-      // Execute transaction with retry
-      let txHash;
-      for (let attempt = 1; attempt <= 3; attempt++) {
-        try {
-          txHash = await connection.sendRawTransaction(transaction.serialize(), {
-            skipPreflight: false,
-            preflightCommitment: 'confirmed',
-            maxRetries: 3
-          });
-          break;
-        } catch (error) {
-          console.warn(`Solana transaction attempt ${attempt} failed:`, error.message);
-          if (attempt === 3) throw error;
-          await new Promise(resolve => setTimeout(resolve, 2000 * attempt));
-        }
-      }
-
-      // Wait for confirmation with timeout
-      const confirmationPromise = connection.confirmTransaction(txHash, 'confirmed');
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Transaction confirmation timeout')), 60000)
-      );
-
-      await Promise.race([confirmationPromise, timeoutPromise]);
-
-      const executedPrice = parseInt(quoteData.inAmount) / parseInt(quoteData.outAmount);
-      const tokensReceived = parseInt(quoteData.outAmount) / Math.pow(10, 9); // Assuming 9 decimals
-
-      return {
-        txHash,
-        executedPrice,
-        tokensReceived,
-        gasUsed: 'N/A'
-      };
-
-    } catch (error) {
-      console.error('Solana buy execution error:', error);
-      throw new Error(`Solana buy failed: ${error.message}`);
+    if (!swapResponse.data?.swapTransaction) {
+      throw new Error('No swap transaction received');
     }
+
+    const { swapTransaction } = swapResponse.data;
+
+let txHash;
+for (let attempt = 1; attempt <= 3; attempt++) {
+  try {
+    // 🔁 Regenerate swapTransaction to get fresh blockhash
+    const { data: refreshedSwap } = await axios.post(JUPITER_SWAP_API, {
+      quoteResponse: quoteData,
+      userPublicKey: wallet.publicKey.toString(),
+      wrapAndUnwrapSol: true,
+      dynamicComputeUnitLimit: true,
+      prioritizationFeeLamports: 100000
+    }, { timeout: 10000 });
+
+    if (!refreshedSwap?.swapTransaction) throw new Error("No swap transaction received on retry");
+
+    const { swapTransaction } = refreshedSwap;
+
+    const transactionBuf = Buffer.from(swapTransaction, 'base64');
+    const transaction = VersionedTransaction.deserialize(transactionBuf);
+
+    // Sign it
+    transaction.sign([wallet]);
+
+    // Send
+    txHash = await connection.sendRawTransaction(transaction.serialize(), {
+      skipPreflight: false,
+      preflightCommitment: 'confirmed',
+      maxRetries: 3
+    });
+
+    // Confirm
+    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+    await connection.confirmTransaction({
+      signature: txHash,
+      blockhash,
+      lastValidBlockHeight
+    }, 'confirmed');
+
+    break; // ✅ success
+
+  } catch (error) {
+    console.warn(`Transaction attempt ${attempt} failed: ${error.message}`);
+    if (attempt === 3) throw error;
+    await new Promise(res => setTimeout(res, 2000 * attempt));
   }
+}
+
+    const executedPrice = parseInt(quoteData.inAmount) / parseInt(quoteData.outAmount);
+    const tokensReceived = parseInt(quoteData.outAmount) / Math.pow(10, 9); // Assumes 9 decimals
+
+    return {
+      txHash,
+      executedPrice,
+      tokensReceived,
+      gasUsed: 'N/A' // Solana doesn't report gas like EVM chains
+    };
+
+  } catch (error) {
+    console.error('Solana buy execution error:', error);
+    throw new Error(`Solana buy failed: ${error.message}`);
+  }
+}
 
   // Enhanced Solana sell via Jupiter
   async executeSolanaSell(privateKeyHex, tokenAddress, amount, slippage) {

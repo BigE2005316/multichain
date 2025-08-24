@@ -807,6 +807,40 @@ createJupiterWalletAdapter(keypair) {
     }
   }
 
+  async detectChainFromAddress(address) {
+  if (!address || typeof address !== "string") {
+    return "Invalid address";
+  }
+
+  // Ethereum + all EVM chains
+  if (/^0x[a-fA-F0-9]{40}$/.test(address)) {
+    return "EVM (Ethereum, Polygon, BSC, Arbitrum, Optimism, etc.)";
+  }
+
+  // Solana (Base58, length 32-44)
+  if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address)) {
+    return "Solana";
+  }
+
+  // Bitcoin Legacy
+  if (/^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$/.test(address)) {
+    return "Bitcoin (Legacy)";
+  }
+
+  // Bitcoin Bech32 (SegWit)
+  if (/^(bc1)[a-z0-9]{25,39}$/.test(address)) {
+    return "Bitcoin (SegWit)";
+  }
+
+  // Add more heuristics for other chains as needed
+  return "Unknown / Unsupported";
+}
+
+// Examples
+// console.log(detectChainFromAddress("0x742d35Cc6634C0532925a3b844Bc454e4438f44e")); // EVM
+// console.log(detectChainFromAddress("H3V2i6G9E3Zmv92Tx2aYz6vNZtKcTNNWUnwxhWptW1P3")); // Solana
+// console.log(detectChainFromAddress("bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq")); // Bitcoin
+
   // Get wallet info for UI display
   async getWalletInfo(userId, chain) {
     try {
@@ -895,6 +929,7 @@ module.exports = {
   clearCache: walletService.clearCache.bind(walletService),
   handleDecryptionFailure: walletService.handleDecryptionFailure.bind(walletService),
   regenerateWallet: walletService.regenerateWallet.bind(walletService),
+  detectChainFromAddress: walletService.detectChainFromAddress.bind(walletService),
   getWalletInfo: walletService.getWalletInfo.bind(walletService),
   refreshWalletData: walletService.refreshWalletData.bind(walletService),
     decrypt: walletService.decrypt.bind(walletService),

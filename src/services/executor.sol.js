@@ -38,6 +38,21 @@ const bs58 = require('bs58');
 const axios = require('axios');
 const cfg = require('../config'); // adjust path to where your cfg is defined
 
+
+const QUICKNODE_SOL = process.env.QUICKNODE_SOL; // your Solana endpoint
+
+async function getSolTxsForAddress(address) {
+  const res = await axios.post(QUICKNODE_SOL, {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "getSignaturesForAddress",
+    params: [address, { limit: 5 }]
+  });
+
+  return res.data.result || [];
+}
+
+
 async function executeSolSwap({ tokenIn, tokenOut, amountIn, slippageBps }) {
   const connection = new Connection(cfg.sol.rpc, 'confirmed');
   const secret = bs58.decode(cfg.sol.privateKeyBase58);

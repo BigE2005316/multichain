@@ -11,10 +11,11 @@ const { initQueues } = require('./src/queue/index.js');
 const { MoralisService } = require('./src/services/moralis.service.js');
 const { HeliusService } = require('./src/services/helius.service.js');
 const { seeder } = require('./src/services/seeder.js');
-
+const {startPollingLoop} = require('./src/services/copyOrchestrator.js')
 const User = require('./src/models/User');
 // const { startBot } = require('./bot/BotCore.js');
 const logger = require('./src/utils/logger.js');
+const WalletFollow = require('./src/models/WalletFollow');
 
 const app = express();
 app.use(bodyParser.json());
@@ -785,12 +786,11 @@ For security reasons, private key export is done through secure channels only. C
   }
 
   registerCopyTradingCommands() {
-    // Add wallet for tracking
-    this.botCore.registerCommand('addwallet', async (ctx) => {
-      const args = ctx.message.text.split(' ').slice(1);
-      
-      if (args.length === 0) {
-        return ctx.reply(`📝 **Add Wallet to Track**
+  this.botCore.registerCommand('addwallet', async (ctx) => {
+    const args = ctx.message.text.split(' ').slice(1);
+
+    if (args.length === 0) {
+      return ctx.reply(`📝 **Add Wallet to Track**
 
 **Usage:** \`/addwallet <wallet_address>\`
 
@@ -798,161 +798,256 @@ For security reasons, private key export is done through secure channels only. C
 \`/addwallet 7xCUsFgE4Hc3a9Zc6Uz4Y13HQhdGbxpwyAtF5hSKiiuZ\`
 
 This will add the wallet to your tracking list for copy trading.`, 
-          { parse_mode: 'Markdown' });
-      }
-
-      const walletAddress = args[0];
-      
-      try {
-        // Add wallet to tracking (implement this functionality)
-        const parts = (ctx.message.text || '').split(' ');
-    // /follow <EVM|SOL> <leaderAddress> [ratio=1]
-    //const chain = (parts[1] || '').toUpperCase();
-    let chain = this.getChainSymbol(((await userService.getUserSettings(ctx.from.id))?.chain?.toUpperCase() || 'SOLANA').toLowerCase())
-    chain = chain.toLowerCase()=='token'?'solana':chain
-    console.log(`user chain is: ${chain}`)
-    // const address = parts[2];
-    const address = parts[1];
-    // const ratio = Number(parts[3] || '1');
-    const ratio = Number('1');
-
-    if (!['EVM','SOL'].includes(chain) || !address) {
-      return ctx.reply('Usage: /follow <EVM|SOL> <address> [ratio]');
+        { parse_mode: 'Markdown' });
     }
 
-    var _user = await userService.getUserSettings(ctx.from.id)
-    // console.log(_user)
-    const user = await User.findOne({ tgId: String(ctx.from.id) });
-        console.log(user)
+    const walletAddress = args[0];
 
-    const idx = user.follows.findIndex(f => f.chain === chain && f.address.toLowerCase() === address.toLowerCase());
-    const payload = { chain, address, ratio, active: true };
-    if (idx >= 0) user.follows[idx] = { ...user.follows[idx], ...payload };
-    else user.follows.push(payload);
-    await user.save();
+    try {
+      // Detect chain preference for this user
+      let userChain = this.getChainSymbol(((await userService.getUserSettings(ctx.from.id))?.chain?.toUpperCase() || 'SOLANA').toLowerCase());
+      userChain = userChain.toLowerCase() === 'token' ? 'solana' : userChain;
+      console.log(`user chain is: ${userChain}`);
 
-        console.log("calling EVM or Helius")
-    // if (chain === 'EVM') await MoralisService.addAddressEVM(address);
-    // else await HeliusService.addAddress(address);
-    //     console.log("after calling EVM or Helius")
-        if (chain === 'EVM') await MoralisService.addAddressEVM(address);
-    else await MoralisService.addAddressSolana(address);
+      // Validate wallet chain
+      let followerChain = await walletService.detectChainFromAddress(walletAddress);
+      console.log(`followerChain: ${followerChain}`);
+      if (!['EVM','SOL','Solana','Ethereum'].includes(followerChain)) {
+        return ctx.reply('❌ Invalid chain. Usage: /addwallet <wallet_address>');
+      }
 
-        console.log("after calling Moralis")
+      // Load User
+      const user = await User.findOne({ tgId: String(ctx.from.id) });
+      if (!user) {
+        return ctx.reply("❌ User not found in system.");
+      }
 
-    return ctx.reply(`Following ${address} on ${chain} (ratio ${ratio}x).`);
+      // Ensure WalletFollow (leader record) exists
+      let walletFollow = await WalletFollow.findOne({ chain: userChain, leader: walletAddress });
+      if (!walletFollow) {
+        walletFollow = new WalletFollow({
+          chain: userChain,
+          leader: walletAddress,
+          followers: []
+        });
+        await walletFollow.save();
+        console.log(`✅ WalletFollow created for ${walletAddress} (${userChain})`);
+      }
 
-        await ctx.reply(`✅ **Wallet Added Successfully!**
+      // Attach user to followers list
+      const followerExists = walletFollow.followers.some(f => f.userId.toString() === user._id.toString());
+      if (!followerExists) {
+        walletFollow.followers.push({
+          userId: user._id,
+          ratio: 1,
+          slippageBps: 50,   // default slippage
+          maxUsdPerTrade: 100, // default limit
+          active: true
+        });
+        await walletFollow.save();
+      }
+
+      // Also attach in User.follows
+      const idx = user.follows.findIndex(f => f.chain === userChain && f.address.toLowerCase() === walletAddress.toLowerCase());
+      const payload = { chain: userChain, address: walletAddress, ratio: 1, active: true };
+      if (idx >= 0) user.follows[idx] = { ...user.follows[idx], ...payload };
+      else user.follows.push(payload);
+      await user.save();
+
+      await ctx.reply(`✅ **Wallet Added Successfully!**
 
 **Address:** \`${walletAddress}\`
+**Chain:** ${userChain}
 
 **Next Steps:**
 • Use /namewallet to give it a custom name
 • Use /begin to start copying trades
 • Use /walletstatus to view all tracked wallets`, 
-          { parse_mode: 'Markdown' });
-      } catch (error) {
-        await ctx.reply('❌ Failed to add wallet. Please check the address and try again.');
-      }
-    });
+        { parse_mode: 'Markdown' });
 
-    // Name wallet command
-    this.botCore.registerCommand('namewallet', async (ctx) => {
-      const args = ctx.message.text.split(' ').slice(1);
+    } catch (error) {
+      console.error("Add wallet error:", error);
+      await ctx.reply('❌ Failed to add wallet. Please check the address and try again.');
+    }
+  });
+}
+
+//   registerCopyTradingCommands() {
+//     // Add wallet for tracking
+//     this.botCore.registerCommand('addwallet', async (ctx) => {
+//       const args = ctx.message.text.split(' ').slice(1);
       
-      if (args.length < 2) {
-        return ctx.reply(`📝 **Name Your Wallets**
+//       if (args.length === 0) {
+//         return ctx.reply(`📝 **Add Wallet to Track**
 
-**Usage:** \`/namewallet <wallet_address> <name>\`
+// **Usage:** \`/addwallet <wallet_address>\`
 
-**Example:** 
-\`/namewallet 7xCUsF...KiiuZ "Whale Trader"\`
+// **Example:** 
+// \`/addwallet 7xCUsFgE4Hc3a9Zc6Uz4Y13HQhdGbxpwyAtF5hSKiiuZ\`
 
-This helps you identify wallets easily.`, 
-          { parse_mode: 'Markdown' });
-      }
+// This will add the wallet to your tracking list for copy trading.`, 
+//           { parse_mode: 'Markdown' });
+//       }
 
-      const walletAddress = args[0];
-      const name = args.slice(1).join(' ');
+//       const walletAddress = args[0];
       
-      try {
-        // Implement wallet naming functionality
-        await ctx.reply(`✅ **Wallet Named Successfully!**
+//       try {
+//         // Add wallet to tracking (implement this functionality)
+//         const parts = (ctx.message.text || '').split(' ');
+//     // /follow <EVM|SOL> <leaderAddress> [ratio=1]
+//     //const chain = (parts[1] || '').toUpperCase();
+//     let userChain = this.getChainSymbol(((await userService.getUserSettings(ctx.from.id))?.chain?.toUpperCase() || 'SOLANA').toLowerCase())
+//     userChain = userChain.toLowerCase()=='token'?'solana':userChain
+//     console.log(`user chain is: ${userChain}`)
+//     // const address = parts[2];
+//     const address = parts[1];
+//     // const ratio = Number(parts[3] || '1');
+//     const ratio = Number('1');
 
-**Address:** \`${walletAddress}\`
-**Name:** "${name}"
+//     if (!['EVM','SOL'].includes(userChain) || !address) {
+//       return ctx.reply('Usage: /follow <EVM|SOL> <address> [ratio]');
+//     }
 
-You can now easily identify this wallet in your tracking list.`);
-      } catch (error) {
-        await ctx.reply('❌ Failed to name wallet. Please try again.');
-      }
-    });
+//     let followerChain =await walletService.detectChainFromAddress(address)
+//     console.log(`followerChain: ${followerChain}`)
+//     if (!['EVM','SOL','Solana','Etherium'].includes(followerChain)) {
+//       return ctx.reply('Usage: /follow <EVM|SOL> <address> [ratio]');
+//     }
 
-    // Begin copying command
-    this.botCore.registerCommand('begin', async (ctx) => {
-      const args = ctx.message.text.split(' ').slice(1);
+//     var _user = await userService.getUserSettings(ctx.from.id)
+//     // console.log(_user)
+//     const user = await User.findOne({ tgId: String(ctx.from.id) });
+//         console.log(user)
+
+//     const idx = user.follows.findIndex(f => f.chain === userChain && f.address.toLowerCase() === address.toLowerCase());
+//     const payload = { chain: userChain, address, ratio, active: true };
+//     if (idx >= 0) user.follows[idx] = { ...user.follows[idx], ...payload };
+//     else user.follows.push(payload);
+//     await user.save();
+
+//         console.log("calling EVM or Helius")
+//     // if (chain === 'EVM') await MoralisService.addAddressEVM(address);
+//     // else await HeliusService.addAddress(address);
+//     //     console.log("after calling EVM or Helius")
+
+//     //     if (userChain === 'EVM') await MoralisService.addAddressEVM(address);
+//     // else await MoralisService.addAddressSolana(address);
+
+//     //     console.log("after calling Moralis")
+
+//     // return ctx.reply(`Following ${address} on ${userChain} (ratio ${ratio}x).`);
+
+//         await ctx.reply(`✅ **Wallet Added Successfully!**
+
+// **Address:** \`${walletAddress}\`
+
+// **Next Steps:**
+// • Use /namewallet to give it a custom name
+// • Use /begin to start copying trades
+// • Use /walletstatus to view all tracked wallets`, 
+//           { parse_mode: 'Markdown' });
+//       } catch (error) {
+//         await ctx.reply('❌ Failed to add wallet. Please check the address and try again.');
+//       }
+//     });
+
+//     // Name wallet command
+//     this.botCore.registerCommand('namewallet', async (ctx) => {
+//       const args = ctx.message.text.split(' ').slice(1);
       
-      if (args.length === 0) {
-        return ctx.reply(`🚀 **Start Copy Trading**
+//       if (args.length < 2) {
+//         return ctx.reply(`📝 **Name Your Wallets**
 
-**Usage:** \`/begin <wallet_address_or_name>\`
+// **Usage:** \`/namewallet <wallet_address> <name>\`
 
-**Examples:** 
-• \`/begin 7xCUsF...KiiuZ\`
-• \`/begin "Whale Trader"\`
+// **Example:** 
+// \`/namewallet 7xCUsF...KiiuZ "Whale Trader"\`
 
-This will start copying all trades from the specified wallet.`, 
-          { parse_mode: 'Markdown' });
-      }
+// This helps you identify wallets easily.`, 
+//           { parse_mode: 'Markdown' });
+//       }
 
-      const identifier = args.join(' ');
+//       const walletAddress = args[0];
+//       const name = args.slice(1).join(' ');
       
-      try {
-        // Implement copy trading start functionality
-        await ctx.reply(`🚀 **Copy Trading Started!**
+//       try {
+//         // Implement wallet naming functionality
+//         await ctx.reply(`✅ **Wallet Named Successfully!**
 
-**Target:** ${identifier}
-**Status:** Active ✅
+// **Address:** \`${walletAddress}\`
+// **Name:** "${name}"
 
-The bot will now copy all trades from this wallet automatically.
+// You can now easily identify this wallet in your tracking list.`);
+//       } catch (error) {
+//         await ctx.reply('❌ Failed to name wallet. Please try again.');
+//       }
+//     });
 
-Use /pause to temporarily stop or /stop to permanently stop.`);
-      } catch (error) {
-        await ctx.reply('❌ Failed to start copy trading. Please try again.');
-      }
-    });
+//     // Begin copying command
+//     this.botCore.registerCommand('begin', async (ctx) => {
+//       const args = ctx.message.text.split(' ').slice(1);
+      
+//       if (args.length === 0) {
+//         return ctx.reply(`🚀 **Start Copy Trading**
 
-    // Wallet status command
-    this.botCore.registerCommand('walletstatus', async (ctx) => {
-      try {
-        // Mock data for demonstration
-        const message = `📊 **Wallet Status Overview**
+// **Usage:** \`/begin <wallet_address_or_name>\`
 
-**Tracked Wallets:** 3
+// **Examples:** 
+// • \`/begin 7xCUsF...KiiuZ\`
+// • \`/begin "Whale Trader"\`
 
-🟢 **Active (2):**
-• "Whale Trader" - 7xCUsF...KiiuZ
-• "Degen King" - 9vBtCd...W3mP
+// This will start copying all trades from the specified wallet.`, 
+//           { parse_mode: 'Markdown' });
+//       }
 
-🟡 **Paused (1):**
-• "Slow Trader" - 5hPqWx...N8kL
+//       const identifier = args.join(' ');
+      
+//       try {
+//         // Implement copy trading start functionality
+//         await ctx.reply(`🚀 **Copy Trading Started!**
 
-🔴 **Stopped (0):**
-None
+// **Target:** ${identifier}
+// **Status:** Active ✅
 
-📈 **Performance (24h):**
-• Total Trades: 12
-• Success Rate: 91.7%
-• Total Volume: $2,340
+// The bot will now copy all trades from this wallet automatically.
 
-Use /begin, /pause, or /stop to manage individual wallets.`;
+// Use /pause to temporarily stop or /stop to permanently stop.`);
+//       } catch (error) {
+//         await ctx.reply('❌ Failed to start copy trading. Please try again.');
+//       }
+//     });
 
-        await ctx.reply(message, { parse_mode: 'Markdown' });
-      } catch (error) {
-        await ctx.reply('❌ Failed to get wallet status. Please try again.');
-      }
-    });
-  }
+//     // Wallet status command
+//     this.botCore.registerCommand('walletstatus', async (ctx) => {
+//       try {
+//         // Mock data for demonstration
+//         const message = `📊 **Wallet Status Overview**
+
+// **Tracked Wallets:** 3
+
+// 🟢 **Active (2):**
+// • "Whale Trader" - 7xCUsF...KiiuZ
+// • "Degen King" - 9vBtCd...W3mP
+
+// 🟡 **Paused (1):**
+// • "Slow Trader" - 5hPqWx...N8kL
+
+// 🔴 **Stopped (0):**
+// None
+
+// 📈 **Performance (24h):**
+// • Total Trades: 12
+// • Success Rate: 91.7%
+// • Total Volume: $2,340
+
+// Use /begin, /pause, or /stop to manage individual wallets.`;
+
+//         await ctx.reply(message, { parse_mode: 'Markdown' });
+//       } catch (error) {
+//         await ctx.reply('❌ Failed to get wallet status. Please try again.');
+//       }
+//     });
+//   }
 
   registerTradingFeatureCommands() {
     // Amount setting command
@@ -1192,6 +1287,7 @@ console.log('after create server')
 //   });
 // })();
 
+startPollingLoop(Number(process.env.POLL_INTERVAL_MS || 15000));
   console.log("starting the bot")
   // Start the bot
   await bot.start();

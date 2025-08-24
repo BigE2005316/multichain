@@ -45,6 +45,26 @@ const axios = require('axios');
 const logger = require('../utils/logger'); // adjust path if different
 const cfg = require('../config/index');    // adjust path if different
 
+const QUICKNODE_RPC = process.env.QUICKNODE_RPC; // your EVM endpoint
+
+async function getEvmTxsForAddress(address, fromBlock = "latest") {
+  const res = await axios.post(QUICKNODE_RPC, {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "qn_getTransactionsByAddress",
+    params: [
+      {
+        address,
+        page: 1,
+        perPage: 5
+      }
+    ]
+  });
+
+  return res.data.result || [];
+}
+
+
 async function executeEvmSwap({ tokenIn, tokenOut, amountIn, slippageBps }) {
   const provider = new ethers.JsonRpcProvider(process.env.ETH_RPC || 'https://rpc.ankr.com/eth');
   const wallet = new ethers.Wallet(cfg.evm.privateKey, provider);

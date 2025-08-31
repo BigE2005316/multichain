@@ -1287,12 +1287,12 @@ console.log('after create server')
 //   });
 // })();
 
-startPollingLoop(Number(process.env.POLL_INTERVAL_MS || 15000));
+//startPollingLoop(Number(process.env.POLL_INTERVAL_MS || 15000));
   console.log("starting the bot")
   // Start the bot
   await bot.start();
 
-
+ 
 }
 
 // Export for potential module usage

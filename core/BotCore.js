@@ -249,7 +249,8 @@ class BotCore {
 ✨ **Professional trading bot with real blockchain execution**`, 
           { parse_mode: 'Markdown' });
       });
-      
+       await this.bot.telegram.deleteWebhook({ drop_pending_updates: true });
+
       await this.bot.launch({
         dropPendingUpdates: true,
         allowedUpdates: ['message', 'callback_query']

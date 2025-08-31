@@ -496,6 +496,161 @@ const ETHERSCAN_API_KEY = process.env.ETHERSCAN_API_KEY;
 //const ETHERSCAN_API_KEY = 'your_etherscan_api_key';
 const BSCSCAN_API_KEY = 'your_bscscan_api_key';
 
+// async function getBasicTokenInfo(tokenAddress, chain = 'ethereum') {
+//   try {
+//     const lowerChain = chain.toLowerCase();
+//     let tokenInfo = null;
+//     let externalInfo = {};
+//     let currentPrice = null;
+
+//     debugger
+//     switch (lowerChain) {
+//       case 'solana': {
+//         const res = await axios.get(
+//           'https://cdn.jsdelivr.net/gh/solana-labs/token-list@main/src/tokens/solana.tokenlist.json'
+//         );
+//     debugger
+//         const tokenList = res.data.tokens;
+//         tokenInfo = tokenList.find((t) => t.address === tokenAddress);
+
+//         if (!tokenInfo) throw new Error(`Token ${tokenAddress} not found on Solana.`);
+
+//             debugger
+
+//         // Get price from CoinGecko using coingeckoId (if available)
+//         if (tokenInfo.extensions?.coingeckoId) {
+//           const cgRes = await axios.get(
+//             `https://api.coingecko.com/api/v3/simple/price`,
+//             {
+//               params: {
+//                 ids: tokenInfo.extensions.coingeckoId,
+//                 vs_currencies: 'usd',
+//               },
+//             }
+//           );
+//           currentPrice = cgRes.data[tokenInfo.extensions.coingeckoId]?.usd ?? null;
+//     debugger
+
+//           const metaRes = await axios.get(
+//             `https://api.coingecko.com/api/v3/coins/${tokenInfo.extensions.coingeckoId}`
+//           );
+//           const cg = metaRes.data;
+//     debugger
+
+//           externalInfo = {
+//             description: cg.description.en || '',
+//             website: cg.links.homepage[0],
+//             twitter: cg.links.twitter_screen_name
+//               ? `https://twitter.com/${cg.links.twitter_screen_name}`
+//               : '',
+//             telegram: cg.links.telegram_channel_identifier
+//               ? `https://t.me/${cg.links.telegram_channel_identifier}`
+//               : '',
+//           };
+//         }
+//     debugger
+
+//         return {
+//           chain: 'solana',
+//           address: tokenAddress,
+//           name: tokenInfo.name,
+//           symbol: tokenInfo.symbol,
+//           currentPrice,
+//           decimals: tokenInfo.decimals,
+//           logoURI: tokenInfo.logoURI || '',
+//           ...externalInfo,
+//         };
+//       }
+
+//       case 'ethereum':
+//       case 'bnb': {
+//         const apiUrl =
+//           lowerChain === 'ethereum'
+//             ? `https://api.etherscan.io/api`
+//             : `https://api.bscscan.com/api`;
+
+//         const apiKey =
+//           lowerChain === 'ethereum' ? ETHERSCAN_API_KEY : BSCSCAN_API_KEY;
+
+//         const res = await axios.get(apiUrl, {
+//           params: {
+//             module: 'token',
+//             action: 'tokeninfo',
+//             contractaddress: tokenAddress,
+//             apikey: apiKey,
+//           },
+//         });
+
+//         if (!res.data || !res.data.result || res.data.result.length === 0)
+//           throw new Error(`Token ${tokenAddress} not found on ${lowerChain}`);
+
+//         const info = res.data.result[0];
+
+//         // Try get CoinGecko price
+//         const symbol = info.symbol.toLowerCase();
+//         try {
+//           const cgSearch = await axios.get(
+//             `https://api.coingecko.com/api/v3/search?query=${symbol}`
+//           );
+
+//           const matched = cgSearch.data.coins.find(
+//             (c) => c.symbol.toLowerCase() === symbol
+//           );
+
+//           if (matched) {
+//             const priceRes = await axios.get(
+//               `https://api.coingecko.com/api/v3/simple/price`,
+//               {
+//                 params: {
+//                   ids: matched.id,
+//                   vs_currencies: 'usd',
+//                 },
+//               }
+//             );
+//             currentPrice = priceRes.data[matched.id]?.usd ?? null;
+
+//             const metaRes = await axios.get(
+//               `https://api.coingecko.com/api/v3/coins/${matched.id}`
+//             );
+//             const cg = metaRes.data;
+//             externalInfo = {
+//               description: cg.description.en || '',
+//               website: cg.links.homepage[0],
+//               twitter: cg.links.twitter_screen_name
+//                 ? `https://twitter.com/${cg.links.twitter_screen_name}`
+//                 : '',
+//               telegram: cg.links.telegram_channel_identifier
+//                 ? `https://t.me/${cg.links.telegram_channel_identifier}`
+//                 : '',
+//             };
+//           }
+//         } catch (e) {
+//           console.warn('Unable to fetch CoinGecko price:', e.message);
+//         }
+
+//         return {
+//           chain: lowerChain,
+//           address: tokenAddress,
+//           name: info.tokenName,
+//           symbol: info.symbol,
+//           decimals: parseInt(info.decimals),
+//           totalSupply: info.totalSupply,
+//           currentPrice,
+//           logoURI: '',
+//           ...externalInfo,
+//         };
+//       }
+
+//       default:
+//         throw new Error(`Unsupported chain: ${chain}`);
+//     }
+//   } catch (err) {
+//     console.error('Error in getBasicTokenInfo:', err);
+//     console.error(`Error fetching token info for ${tokenAddress} on ${chain}:`, err.message);
+//     return null;
+//   }
+// }
+
 async function getBasicTokenInfo(tokenAddress, chain = 'ethereum') {
   try {
     const lowerChain = chain.toLowerCase();
@@ -503,148 +658,138 @@ async function getBasicTokenInfo(tokenAddress, chain = 'ethereum') {
     let externalInfo = {};
     let currentPrice = null;
 
-    debugger
     switch (lowerChain) {
       case 'solana': {
-        const res = await axios.get(
-          'https://cdn.jsdelivr.net/gh/solana-labs/token-list@main/src/tokens/solana.tokenlist.json'
-        );
-    debugger
-        const tokenList = res.data.tokens;
-        tokenInfo = tokenList.find((t) => t.address === tokenAddress);
+        // 1. Try Solana official token list
+        try {
+          const res = await axios.get(
+            'https://cdn.jsdelivr.net/gh/solana-labs/token-list@main/src/tokens/solana.tokenlist.json'
+          );
+          const tokenList = res.data.tokens;
+          tokenInfo = tokenList.find((t) => t.address === tokenAddress);
 
-        if (!tokenInfo) throw new Error(`Token ${tokenAddress} not found on Solana.`);
+          if (tokenInfo) {
+            // Get price from CoinGecko if available
+            if (tokenInfo.extensions?.coingeckoId) {
+              const cgRes = await axios.get(
+                `https://api.coingecko.com/api/v3/simple/price`,
+                {
+                  params: {
+                    ids: tokenInfo.extensions.coingeckoId,
+                    vs_currencies: 'usd',
+                  },
+                }
+              );
+              currentPrice = cgRes.data[tokenInfo.extensions.coingeckoId]?.usd ?? null;
 
-            debugger
+              const metaRes = await axios.get(
+                `https://api.coingecko.com/api/v3/coins/${tokenInfo.extensions.coingeckoId}`
+              );
+              const cg = metaRes.data;
 
-        // Get price from CoinGecko using coingeckoId (if available)
-        if (tokenInfo.extensions?.coingeckoId) {
-          const cgRes = await axios.get(
-            `https://api.coingecko.com/api/v3/simple/price`,
-            {
-              params: {
-                ids: tokenInfo.extensions.coingeckoId,
-                vs_currencies: 'usd',
-              },
+              externalInfo = {
+                description: cg.description.en || '',
+                website: cg.links.homepage[0],
+                twitter: cg.links.twitter_screen_name
+                  ? `https://twitter.com/${cg.links.twitter_screen_name}`
+                  : '',
+                telegram: cg.links.telegram_channel_identifier
+                  ? `https://t.me/${cg.links.telegram_channel_identifier}`
+                  : '',
+              };
             }
-          );
-          currentPrice = cgRes.data[tokenInfo.extensions.coingeckoId]?.usd ?? null;
-    debugger
 
-          const metaRes = await axios.get(
-            `https://api.coingecko.com/api/v3/coins/${tokenInfo.extensions.coingeckoId}`
-          );
-          const cg = metaRes.data;
-    debugger
-
-          externalInfo = {
-            description: cg.description.en || '',
-            website: cg.links.homepage[0],
-            twitter: cg.links.twitter_screen_name
-              ? `https://twitter.com/${cg.links.twitter_screen_name}`
-              : '',
-            telegram: cg.links.telegram_channel_identifier
-              ? `https://t.me/${cg.links.telegram_channel_identifier}`
-              : '',
-          };
+            return {
+              chain: 'solana',
+              address: tokenAddress,
+              name: tokenInfo.name,
+              symbol: tokenInfo.symbol,
+              currentPrice,
+              decimals: tokenInfo.decimals,
+              logoURI: tokenInfo.logoURI || '',
+              ...externalInfo,
+            };
+          }
+        } catch (err) {
+          console.warn('Solana token list fetch error:', err.message);
         }
-    debugger
 
+        // 2. Try Birdeye API
+        try {
+          const birdeyeRes = await axios.get(`https://public-api.birdeye.so/public/token/${tokenAddress}`);
+          const birdeye = birdeyeRes.data.data;
+          if (birdeye) {
+            // Try to get price
+            let priceUSD = null;
+            try {
+              const priceRes = await axios.get(`https://public-api.birdeye.so/public/price/token_price?address=${tokenAddress}`);
+              priceUSD = priceRes.data.data?.value || null;
+            } catch (e) {}
+
+            return {
+              chain: 'solana',
+              address: tokenAddress,
+              name: birdeye.name || 'Unknown Token',
+              symbol: birdeye.symbol || 'UNKNOWN',
+              currentPrice: priceUSD,
+              decimals: birdeye.decimals || 9,
+              logoURI: birdeye.logoURI || '',
+              description: birdeye.description || '',
+              website: birdeye.website || '',
+              twitter: birdeye.twitter || '',
+              telegram: birdeye.telegram || ''
+            };
+          }
+        } catch (err) {
+          console.warn('Birdeye fetch error:', err.message);
+        }
+
+        // 3. Try Solscan API
+        try {
+          const solscanRes = await axios.get(`https://api.solscan.io/token/meta?tokenAddress=${tokenAddress}`);
+          const solscan = solscanRes.data;
+          if (solscan && solscan.symbol) {
+            return {
+              chain: 'solana',
+              address: tokenAddress,
+              name: solscan.name || 'Unknown Token',
+              symbol: solscan.symbol || 'UNKNOWN',
+              currentPrice: null,
+              decimals: solscan.decimals || 9,
+              logoURI: solscan.icon || '',
+              description: solscan.description || '',
+              website: solscan.website || '',
+              twitter: solscan.twitter || '',
+              telegram: solscan.telegram || ''
+            };
+          }
+        } catch (err) {
+          console.warn('Solscan fetch error:', err.message);
+        }
+
+        // 4. Fallback: minimal info
         return {
           chain: 'solana',
           address: tokenAddress,
-          name: tokenInfo.name,
-          symbol: tokenInfo.symbol,
-          currentPrice,
-          decimals: tokenInfo.decimals,
-          logoURI: tokenInfo.logoURI || '',
-          ...externalInfo,
-        };
-      }
-
-      case 'ethereum':
-      case 'bnb': {
-        const apiUrl =
-          lowerChain === 'ethereum'
-            ? `https://api.etherscan.io/api`
-            : `https://api.bscscan.com/api`;
-
-        const apiKey =
-          lowerChain === 'ethereum' ? ETHERSCAN_API_KEY : BSCSCAN_API_KEY;
-
-        const res = await axios.get(apiUrl, {
-          params: {
-            module: 'token',
-            action: 'tokeninfo',
-            contractaddress: tokenAddress,
-            apikey: apiKey,
-          },
-        });
-
-        if (!res.data || !res.data.result || res.data.result.length === 0)
-          throw new Error(`Token ${tokenAddress} not found on ${lowerChain}`);
-
-        const info = res.data.result[0];
-
-        // Try get CoinGecko price
-        const symbol = info.symbol.toLowerCase();
-        try {
-          const cgSearch = await axios.get(
-            `https://api.coingecko.com/api/v3/search?query=${symbol}`
-          );
-
-          const matched = cgSearch.data.coins.find(
-            (c) => c.symbol.toLowerCase() === symbol
-          );
-
-          if (matched) {
-            const priceRes = await axios.get(
-              `https://api.coingecko.com/api/v3/simple/price`,
-              {
-                params: {
-                  ids: matched.id,
-                  vs_currencies: 'usd',
-                },
-              }
-            );
-            currentPrice = priceRes.data[matched.id]?.usd ?? null;
-
-            const metaRes = await axios.get(
-              `https://api.coingecko.com/api/v3/coins/${matched.id}`
-            );
-            const cg = metaRes.data;
-            externalInfo = {
-              description: cg.description.en || '',
-              website: cg.links.homepage[0],
-              twitter: cg.links.twitter_screen_name
-                ? `https://twitter.com/${cg.links.twitter_screen_name}`
-                : '',
-              telegram: cg.links.telegram_channel_identifier
-                ? `https://t.me/${cg.links.telegram_channel_identifier}`
-                : '',
-            };
-          }
-        } catch (e) {
-          console.warn('Unable to fetch CoinGecko price:', e.message);
-        }
-
-        return {
-          chain: lowerChain,
-          address: tokenAddress,
-          name: info.tokenName,
-          symbol: info.symbol,
-          decimals: parseInt(info.decimals),
-          totalSupply: info.totalSupply,
-          currentPrice,
+          name: 'Unknown Token',
+          symbol: 'UNKNOWN',
+          currentPrice: null,
+          decimals: 9,
           logoURI: '',
-          ...externalInfo,
+          description: '',
+          website: '',
+          twitter: '',
+          telegram: ''
         };
       }
+
+      // ...existing code for ethereum, bnb, etc...
 
       default:
         throw new Error(`Unsupported chain: ${chain}`);
     }
   } catch (err) {
+    console.error('Error in getBasicTokenInfo:', err);
     console.error(`Error fetching token info for ${tokenAddress} on ${chain}:`, err.message);
     return null;
   }

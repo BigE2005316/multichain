@@ -2,7 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 const redis = require('redis');
-
+const User = require('../src/models/User')
 const DATA_FILE = path.join(__dirname, 'userData.json');
 
 // Redis client setup
@@ -74,40 +74,51 @@ function saveUserData(data) {
 }
 
 // Get user data from Redis or file
+// async function getUserData(userId) {
+//   const client = await initRedis();
+  
+//   if (client) {
+//     try {
+//       const userData = await client.get(`user:${userId}`);
+//       return userData ? JSON.parse(userData) : null;
+//     } catch (err) {
+//       console.error('Redis get error:', err);
+//     }
+//   }
+  
+//   // Fallback to file storage
+//   const allData = loadUserData();
+//   return allData[userId] || null;
+// }
 async function getUserData(userId) {
-  const client = await initRedis();
-  
-  if (client) {
-    try {
-      const userData = await client.get(`user:${userId}`);
-      return userData ? JSON.parse(userData) : null;
-    } catch (err) {
-      console.error('Redis get error:', err);
-    }
-  }
-  
-  // Fallback to file storage
-  const allData = loadUserData();
-  return allData[userId] || null;
+  return await User.findOne({ tgId: userId });
 }
 
+
 // Save user data to Redis or file
-async function saveUserData(userId, userData) {
-  const client = await initRedis();
+// async function saveUserData(userId, userData) {
+//   const client = await initRedis();
   
-  if (client) {
-    try {
-      await client.set(`user:${userId}`, JSON.stringify(userData));
-      return;
-    } catch (err) {
-      console.error('Redis set error:', err);
-    }
-  }
+//   if (client) {
+//     try {
+//       await client.set(`user:${userId}`, JSON.stringify(userData));
+//       return;
+//     } catch (err) {
+//       console.error('Redis set error:', err);
+//     }
+//   }
   
-  // Fallback to file storage
-  const allData = loadUserData();
-  allData[userId] = userData;
-  saveUserData(allData);
+//   // Fallback to file storage
+//   const allData = loadUserData();
+//   allData[userId] = userData;
+//   saveUserData(allData);
+// }
+async function saveUserData(userId, updateData) {
+  return await User.findOneAndUpdate(
+    { tgId: userId },
+    { $set: updateData },
+    { upsert: true, new: true }
+  );
 }
 
 // Helpers

@@ -201,6 +201,7 @@ async function getTokenInfo(tokenAddress, chain) {
     const cached = tokenCache.get(cacheKey);
     debugger
     if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+      console.log('Returning cached token info for', tokenAddress);
       return cached.data;
     }
     debugger
@@ -224,50 +225,135 @@ async function getTokenInfo(tokenAddress, chain) {
   }
 }
 
-  async function getComprehensiveTokenInfo(tokenAddress, chain) {
-    try {
-      debugger
-      // Get basic token data
-      const basicInfo = await getTokenInfo(tokenAddress, chain);
-      debugger
-      if (!basicInfo) {
-        return { success: false, error: 'Token not found or invalid address' };
-      }
+  // async function getComprehensiveTokenInfo(tokenAddress, chain) {
+  //   try {
+  //     debugger
+  //     // Get basic token data
+  //     const basicInfo = await getTokenInfo(tokenAddress, chain);
+  //     debugger
+  //     if (!basicInfo) {
+  //       return { success: false, error: 'Token not found or invalid address' };
+  //     }
 
-      debugger
-      // Get additional market data
-      const marketData = await getAdvancedTokenData(tokenAddress, chain);
-      debugger
-      // Combine all data
-      const comprehensiveInfo = {
-        ...basicInfo,
-        marketCap: marketData?.marketCap || 0,
-        volume24h: marketData?.volume24h || 0,
-        holders: marketData?.holders || 0,
-        traders24h: marketData?.traders24h || 0,
-        liquidity: marketData?.liquidity || 0,
-        liquidityUSD: marketData?.liquidityUSD || 0,
-        priceChange1h: marketData?.priceChange1h || 0,
-        priceChange24h: marketData?.priceChange24h || 0,
-        priceChange7d: marketData?.priceChange7d || 0,
-        age: marketData?.age || 'Unknown',
-        risk: marketData?.risk || 'Medium',
-        verified: marketData?.verified || false,
-        topHolders: marketData?.topHolders || [],
-        recentTrades: marketData?.recentTrades || []
-      };
+  //     debugger
+  //     // Get additional market data
+  //     const marketData = await getAdvancedTokenData(tokenAddress, chain);
+  //     debugger
+  //     // Combine all data
+  //     const comprehensiveInfo = {
+  //       ...basicInfo,
+  //       marketCap: marketData?.marketCap || 0,
+  //       volume24h: marketData?.volume24h || 0,
+  //       holders: marketData?.holders || 0,
+  //       traders24h: marketData?.traders24h || 0,
+  //       liquidity: marketData?.liquidity || 0,
+  //       liquidityUSD: marketData?.liquidityUSD || 0,
+  //       priceChange1h: marketData?.priceChange1h || 0,
+  //       priceChange24h: marketData?.priceChange24h || 0,
+  //       priceChange7d: marketData?.priceChange7d || 0,
+  //       age: marketData?.age || 'Unknown',
+  //       risk: marketData?.risk || 'Medium',
+  //       verified: marketData?.verified || false,
+  //       topHolders: marketData?.topHolders || [],
+  //       recentTrades: marketData?.recentTrades || []
+  //     };
 
-      debugger
-      return { success: true, data: comprehensiveInfo };
+  //     debugger
+  //     return { success: true, data: comprehensiveInfo };
 
-    } catch (error) {
-      debugger
-      console.error('Error getting comprehensive token info:', error);
-      return { success: false, error: 'Failed to analyze token data' };
-    }
-  }
+  //   } catch (error) {
+  //     debugger
+  //     console.error('Error getting comprehensive token info:', error);
+  //     return { success: false, error: 'Failed to analyze token data' };
+  //   }
+  // }
 
 // Get explorer links for token
+
+async function getComprehensiveTokenInfo(tokenAddress, chain = 'solana') {
+  try {
+    // Map chain to DexScreener chainId
+    debugger
+    const chainMap = {
+      'solana': 'solana',
+      'ethereum': 'ethereum',
+      'bsc': 'bsc',
+      'polygon': 'polygon',
+      'arbitrum': 'arbitrum',
+      'base': 'base'
+    };
+    const chainId = chainMap[chain.toLowerCase()];
+    if (!chainId) throw new Error('Unsupported chain');
+
+    debugger
+    // Fetch token pairs from DexScreener
+    const url = `https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`;
+    const response = await axios.get(url, {
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'SmileSnipperBot/1.0'
+      },
+      timeout: 10000
+    });
+
+    if (!response.data || !response.data.pairs || response.data.pairs.length === 0) {
+      return { success: false, error: 'Token not found or no pairs on DexScreener' };
+    }
+
+    // Pick the most liquid pair for the token on the requested chain
+    const pairs = response.data.pairs
+      .filter(p => p.chainId === chainId)
+      .sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0));
+    const pair = pairs[0];
+
+    // Calculate age
+    let age = 'Unknown';
+    if (pair.pairCreatedAt) {
+      const created = new Date(pair.pairCreatedAt);
+      const now = new Date();
+      const ageInDays = Math.floor((now - created) / (1000 * 60 * 60 * 24));
+      const ageInHours = Math.floor((now - created) / (1000 * 60 * 60));
+      age = ageInDays > 0 ? `${ageInDays} day${ageInDays > 1 ? 's' : ''}` : `${ageInHours} hour${ageInHours > 1 ? 's' : ''}`;
+    }
+
+    // Compose comprehensive info
+    const comprehensiveInfo = {
+      name: pair.baseToken?.name || 'Unknown Token',
+      symbol: pair.baseToken?.symbol || 'UNKNOWN',
+      address: pair.baseToken?.address || tokenAddress,
+      chain: chainId,
+      priceUSD: parseFloat(pair.priceUsd || 0),
+      priceNative: parseFloat(pair.priceNative || 0),
+      marketCap: pair.marketCap || 0,
+      liquidity: pair.liquidity?.usd || 0,
+      liquidityUSD: pair.liquidity?.usd || 0,
+      volume24h: pair.volume?.h24 || 0,
+      priceChange1h: pair.priceChange?.h1 || 0,
+      priceChange24h: pair.priceChange?.h24 || 0,
+      priceChange7d: pair.priceChange?.h7d || 0,
+      age,
+      risk: 'Medium', // DexScreener does not provide risk, set default or analyze
+      verified: false, // DexScreener does not provide, set default or analyze
+      topHolders: [], // Not provided by DexScreener
+      recentTrades: [], // Not provided by DexScreener
+      logoURI: '', // Not provided by DexScreener
+      dexScreenerUrl: pair.url,
+      pairAddress: pair.pairAddress,
+      fdv: pair.fdv || 0,
+      txns: pair.txns || {},
+      quoteToken: pair.quoteToken || {},
+      baseToken: pair.baseToken || {},
+      createdAt: pair.pairCreatedAt
+    };
+
+    return { success: true, data: comprehensiveInfo };
+  } catch (error) {
+    debugger
+    console.error('Error in getComprehensiveTokenInfoFromDexScreener:', error);
+    return { success: false, error: error.message };
+  }
+}
+
 function getExplorerLinks(tokenAddress, chain) {
   const links = {
     axiom: null,
@@ -450,14 +536,21 @@ async function getTokenInfo(tokenAddress, chain = 'solana') {
     // Get price data
     const priceData = await getTokenPrice(tokenAddress, chain);
     
-    return {
+    // return {
+    //   ...basicInfo,
+    //   price: priceData?.price || 0,
+    //   priceUSD: priceData?.priceUSD || 0,
+    //   address: tokenAddress,
+    //   chain: chain
+    // };
+
+        return {
       ...basicInfo,
-      price: priceData?.price || 0,
-      priceUSD: priceData?.priceUSD || 0,
+      price: basicInfo?.priceInNative || 0,
+      priceUSD: basicInfo?.currentPrice || 0,
       address: tokenAddress,
       chain: chain
     };
-
   } catch (error) {
     console.error('Error getting token info:', error);
     return null;
@@ -651,12 +744,48 @@ const BSCSCAN_API_KEY = 'your_bscscan_api_key';
 //   }
 // }
 
+async function findTokenInBirdeyePaginated(tokenAddress, apiKey) {
+  const limit = 50;
+  let offset = 0;
+  let foundToken = null;
+  let keepGoing = true;
+
+  while (keepGoing) {
+    const url = `https://public-api.birdeye.so/defi/tokenlist?sort_by=v24hUSD&sort_type=desc&offset=${offset}&limit=${limit}&min_liquidity=100&ui_amount_mode=scaled`;
+    try {
+      const res = await axios.get(url, {
+        headers: {
+          'X-API-KEY': apiKey,
+          'accept': 'application/json',
+          'x-chain': 'solana'
+        },
+        timeout: 10000
+      });
+      const tokens = res.data.data?.tokens || [];
+      if (tokens.length === 0) break;
+
+      foundToken = tokens.find(t => t.address === tokenAddress);
+      if (foundToken) break;
+
+      offset += limit;
+      // Optionally, stop after a certain number of pages to avoid infinite loops
+      if (offset > 5000) break;
+    } catch (err) {
+      console.warn('Birdeye paginated fetch error:', err.message);
+      break;
+    }
+  }
+  return foundToken;
+}
+
 async function getBasicTokenInfo(tokenAddress, chain = 'ethereum') {
   try {
     const lowerChain = chain.toLowerCase();
     let tokenInfo = null;
     let externalInfo = {};
     let currentPrice = null;
+    let priceChange24h = null;
+    let priceInNative = null;
 
     switch (lowerChain) {
       case 'solana': {
@@ -671,32 +800,36 @@ async function getBasicTokenInfo(tokenAddress, chain = 'ethereum') {
           if (tokenInfo) {
             // Get price from CoinGecko if available
             if (tokenInfo.extensions?.coingeckoId) {
-              const cgRes = await axios.get(
-                `https://api.coingecko.com/api/v3/simple/price`,
-                {
-                  params: {
-                    ids: tokenInfo.extensions.coingeckoId,
-                    vs_currencies: 'usd',
-                  },
-                }
-              );
-              currentPrice = cgRes.data[tokenInfo.extensions.coingeckoId]?.usd ?? null;
+              try {
+                const cgRes = await axios.get(
+                  `https://api.coingecko.com/api/v3/simple/price`,
+                  {
+                    params: {
+                      ids: tokenInfo.extensions.coingeckoId,
+                      vs_currencies: 'usd',
+                    },
+                  }
+                );
+                currentPrice = cgRes.data[tokenInfo.extensions.coingeckoId]?.usd ?? null;
 
-              const metaRes = await axios.get(
-                `https://api.coingecko.com/api/v3/coins/${tokenInfo.extensions.coingeckoId}`
-              );
-              const cg = metaRes.data;
+                const metaRes = await axios.get(
+                  `https://api.coingecko.com/api/v3/coins/${tokenInfo.extensions.coingeckoId}`
+                );
+                const cg = metaRes.data;
 
-              externalInfo = {
-                description: cg.description.en || '',
-                website: cg.links.homepage[0],
-                twitter: cg.links.twitter_screen_name
-                  ? `https://twitter.com/${cg.links.twitter_screen_name}`
-                  : '',
-                telegram: cg.links.telegram_channel_identifier
-                  ? `https://t.me/${cg.links.telegram_channel_identifier}`
-                  : '',
-              };
+                externalInfo = {
+                  description: cg.description.en || '',
+                  website: cg.links.homepage[0],
+                  twitter: cg.links.twitter_screen_name
+                    ? `https://twitter.com/${cg.links.twitter_screen_name}`
+                    : '',
+                  telegram: cg.links.telegram_channel_identifier
+                    ? `https://t.me/${cg.links.telegram_channel_identifier}`
+                    : '',
+                };
+              } catch (e) {
+                externalInfo = {};
+              }
             }
 
             return {
@@ -714,37 +847,54 @@ async function getBasicTokenInfo(tokenAddress, chain = 'ethereum') {
           console.warn('Solana token list fetch error:', err.message);
         }
 
-        // 2. Try Birdeye API
+
+        // 3. Try Birdeye paginated search
+          debugger
         try {
-          const birdeyeRes = await axios.get(`https://public-api.birdeye.so/public/token/${tokenAddress}`);
-          const birdeye = birdeyeRes.data.data;
-          if (birdeye) {
-            // Try to get price
-            let priceUSD = null;
+          const apiKey = process.env.BIRDEYE_API_KEY || 'd3610c8e28f74dba8f01f3ef03de1aad';
+          const foundToken = await findTokenInBirdeyePaginated(tokenAddress, apiKey);
+          debugger
+          if (foundToken) {
+            // Get price and 24h change from Birdeye price endpoint
             try {
-              const priceRes = await axios.get(`https://public-api.birdeye.so/public/price/token_price?address=${tokenAddress}`);
-              priceUSD = priceRes.data.data?.value || null;
+              const priceRes = await axios.get(
+                `https://public-api.birdeye.so/defi/price?address=${tokenAddress}&ui_amount_mode=raw`,
+                {
+                  headers: {
+                    'X-API-KEY': apiKey,
+                    'accept': 'application/json',
+                    'x-chain': 'solana'
+                  }
+                }
+              );
+          debugger
+              currentPrice = priceRes.data.data?.value ?? null;
+              priceChange24h = priceRes.data.data?.priceChange24h ?? null;
+              priceInNative = priceRes.data.data?.priceInNative ?? null;
             } catch (e) {}
 
             return {
               chain: 'solana',
-              address: tokenAddress,
-              name: birdeye.name || 'Unknown Token',
-              symbol: birdeye.symbol || 'UNKNOWN',
-              currentPrice: priceUSD,
-              decimals: birdeye.decimals || 9,
-              logoURI: birdeye.logoURI || '',
-              description: birdeye.description || '',
-              website: birdeye.website || '',
-              twitter: birdeye.twitter || '',
-              telegram: birdeye.telegram || ''
+              address: foundToken.address,
+              name: foundToken.name || 'Unknown Token',
+              symbol: foundToken.symbol || 'UNKNOWN',
+              currentPrice,
+              priceChange24h,
+              priceInNative,
+              decimals: foundToken.decimals || 9,
+              logoURI: foundToken.logoURI || foundToken.icon || '',
+              description: foundToken.description || '',
+              website: foundToken.website || '',
+              twitter: foundToken.twitter || '',
+              telegram: foundToken.telegram || ''
             };
           }
         } catch (err) {
-          console.warn('Birdeye fetch error:', err.message);
+          debugger
+          console.warn('Birdeye paginated fetch error:', err.message);
         }
 
-        // 3. Try Solscan API
+        // 4. Try Solscan API
         try {
           const solscanRes = await axios.get(`https://api.solscan.io/token/meta?tokenAddress=${tokenAddress}`);
           const solscan = solscanRes.data;
@@ -767,7 +917,7 @@ async function getBasicTokenInfo(tokenAddress, chain = 'ethereum') {
           console.warn('Solscan fetch error:', err.message);
         }
 
-        // 4. Fallback: minimal info
+        // 5. Fallback: minimal info
         return {
           chain: 'solana',
           address: tokenAddress,
@@ -794,6 +944,152 @@ async function getBasicTokenInfo(tokenAddress, chain = 'ethereum') {
     return null;
   }
 }
+
+// async function getBasicTokenInfo(tokenAddress, chain = 'ethereum') {
+//   try {
+//     const lowerChain = chain.toLowerCase();
+//     let tokenInfo = null;
+//     let externalInfo = {};
+//     let currentPrice = null;
+
+//     switch (lowerChain) {
+//       case 'solana': {
+//         // 1. Try Solana official token list
+//         try {
+//           const res = await axios.get(
+//             'https://cdn.jsdelivr.net/gh/solana-labs/token-list@main/src/tokens/solana.tokenlist.json'
+//           );
+//           const tokenList = res.data.tokens;
+//           tokenInfo = tokenList.find((t) => t.address === tokenAddress);
+
+//           debugger
+//           if (tokenInfo) {
+//             // Get price from CoinGecko if available
+//             if (tokenInfo.extensions?.coingeckoId) {
+//               const cgRes = await axios.get(
+//                 `https://api.coingecko.com/api/v3/simple/price`,
+//                 {
+//                   params: {
+//                     ids: tokenInfo.extensions.coingeckoId,
+//                     vs_currencies: 'usd',
+//                   },
+//                 }
+//               );
+//               currentPrice = cgRes.data[tokenInfo.extensions.coingeckoId]?.usd ?? null;
+
+//               const metaRes = await axios.get(
+//                 `https://api.coingecko.com/api/v3/coins/${tokenInfo.extensions.coingeckoId}`
+//               );
+//               const cg = metaRes.data;
+
+//               externalInfo = {
+//                 description: cg.description.en || '',
+//                 website: cg.links.homepage[0],
+//                 twitter: cg.links.twitter_screen_name
+//                   ? `https://twitter.com/${cg.links.twitter_screen_name}`
+//                   : '',
+//                 telegram: cg.links.telegram_channel_identifier
+//                   ? `https://t.me/${cg.links.telegram_channel_identifier}`
+//                   : '',
+//               };
+//             }
+
+//             return {
+//               chain: 'solana',
+//               address: tokenAddress,
+//               name: tokenInfo.name,
+//               symbol: tokenInfo.symbol,
+//               currentPrice,
+//               decimals: tokenInfo.decimals,
+//               logoURI: tokenInfo.logoURI || '',
+//               ...externalInfo,
+//             };
+//           }
+//         } catch (err) {
+//           console.warn('Solana token list fetch error:', err.message);
+//         }
+
+//         debugger
+//         // 2. Try Birdeye API
+//         try {
+//           const birdeyeRes = await axios.get(`https://public-api.birdeye.so/public/token/${tokenAddress}`);
+//           const birdeye = birdeyeRes.data.data;
+//           if (birdeye) {
+//             // Try to get price
+//             let priceUSD = null;
+//             try {
+//               const priceRes = await axios.get(`https://public-api.birdeye.so/public/price/token_price?address=${tokenAddress}`);
+//               priceUSD = priceRes.data.data?.value || null;
+//             } catch (e) {}
+
+//             return {
+//               chain: 'solana',
+//               address: tokenAddress,
+//               name: birdeye.name || 'Unknown Token',
+//               symbol: birdeye.symbol || 'UNKNOWN',
+//               currentPrice: priceUSD,
+//               decimals: birdeye.decimals || 9,
+//               logoURI: birdeye.logoURI || '',
+//               description: birdeye.description || '',
+//               website: birdeye.website || '',
+//               twitter: birdeye.twitter || '',
+//               telegram: birdeye.telegram || ''
+//             };
+//           }
+//         } catch (err) {
+//           console.warn('Birdeye fetch error:', err.message);
+//         }
+
+//         // 3. Try Solscan API
+//         try {
+//           const solscanRes = await axios.get(`https://api.solscan.io/token/meta?tokenAddress=${tokenAddress}`);
+//           const solscan = solscanRes.data;
+//           if (solscan && solscan.symbol) {
+//             return {
+//               chain: 'solana',
+//               address: tokenAddress,
+//               name: solscan.name || 'Unknown Token',
+//               symbol: solscan.symbol || 'UNKNOWN',
+//               currentPrice: null,
+//               decimals: solscan.decimals || 9,
+//               logoURI: solscan.icon || '',
+//               description: solscan.description || '',
+//               website: solscan.website || '',
+//               twitter: solscan.twitter || '',
+//               telegram: solscan.telegram || ''
+//             };
+//           }
+//         } catch (err) {
+//           console.warn('Solscan fetch error:', err.message);
+//         }
+
+//         // 4. Fallback: minimal info
+//         return {
+//           chain: 'solana',
+//           address: tokenAddress,
+//           name: 'Unknown Token',
+//           symbol: 'UNKNOWN',
+//           currentPrice: null,
+//           decimals: 9,
+//           logoURI: '',
+//           description: '',
+//           website: '',
+//           twitter: '',
+//           telegram: ''
+//         };
+//       }
+
+//       // ...existing code for ethereum, bnb, etc...
+
+//       default:
+//         throw new Error(`Unsupported chain: ${chain}`);
+//     }
+//   } catch (err) {
+//     console.error('Error in getBasicTokenInfo:', err);
+//     console.error(`Error fetching token info for ${tokenAddress} on ${chain}:`, err.message);
+//     return null;
+//   }
+// }
 
 async function getTokenPrice(tokenAddress, chain) {
   try {
@@ -1551,6 +1847,7 @@ async function getNativeTokenPrice(chain) {
 module.exports = {
   getComprehensiveTokenInfo,
   getTokenInfo,
+  getSolanaTokenMetadata,
   getAdvancedTokenData,
   analyzeToken,
   getBasicTokenInfo,

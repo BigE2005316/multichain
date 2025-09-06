@@ -416,6 +416,8 @@ async function setSellMode(userId, mode) {
 
 // Position tracking for copy trades
 async function addPosition(userId, tokenAddress, amount, price, sourceWallet, tokenName='Unknown Token', tokenSymbol='Unknown') {
+    console.log(`Token info ${tokenName}: ${tokenSymbol}:  ${tokenAddress}: `);
+
   const userData = await ensureUser(userId);
   
   if (!userData.positions) {
@@ -426,8 +428,8 @@ async function addPosition(userId, tokenAddress, amount, price, sourceWallet, to
     userData.positions[tokenAddress] = {
       totalAmount: 0,
       avgPrice: 0,
-      tokenSymbol: 'Unknown',
-      tokenName: 'Unknown Token',
+      tokenSymbol: tokenSymbol || 'Unknown',
+      tokenName: tokenName || 'Unknown Token',
       chain: userData.chain || 'solana',
       copyTrades: []
     };
@@ -450,7 +452,8 @@ async function addPosition(userId, tokenAddress, amount, price, sourceWallet, to
   position.tokenName = tokenName || position.tokenName
   position.tokenSymbol = tokenSymbol || position.tokenSymbol
   await saveUserData(userId, userData);
-  
+  console.log(`User ${userData}`);
+  console.log(`Added position for user ${position.tokenName}: ${position.tokenSymbol}:  ${position.tokenAddress}: `);
   return position;
 }
 

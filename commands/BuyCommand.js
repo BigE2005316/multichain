@@ -4,6 +4,7 @@ const userService = require('../users/userService');
 const walletService = require('../services/walletService');
 const tokenDataService = require('../services/tokenDataService');
 const realTradingExecutor = require('../services/realTradingExecutor').RealTradingExecutor;
+const axios = require('axios');
 
 class BuyCommand {
   constructor(botCore) {
@@ -128,44 +129,184 @@ class BuyCommand {
     }
   }
 
-  async getComprehensiveTokenInfo(tokenAddress, chain) {
-    try {
-      // Get basic token data
-      const basicInfo = await tokenDataService.getTokenInfo(tokenAddress, chain);
+  // async getComprehensiveTokenInfo(tokenAddress, chain) {
+  //   try {
+  //     // Get basic token data
+  //     const basicInfo = await tokenDataService.getTokenInfo(tokenAddress, chain);
       
-      if (!basicInfo) {
-        return { success: false, error: 'Token not found or invalid address' };
-      }
+  //     if (!basicInfo) {
+  //       return { success: false, error: 'Token not found or invalid address' };
+  //     }
 
-      // Get additional market data
-      const marketData = await tokenDataService.getAdvancedTokenData(tokenAddress, chain);
+  //     // Get additional market data
+  //     const marketData = await tokenDataService.getAdvancedTokenData(tokenAddress, chain);
       
-      // Combine all data
-      const comprehensiveInfo = {
-        ...basicInfo,
-        marketCap: marketData?.marketCap || 0,
-        volume24h: marketData?.volume24h || 0,
-        holders: marketData?.holders || 0,
-        traders24h: marketData?.traders24h || 0,
-        liquidity: marketData?.liquidity || 0,
-        liquidityUSD: marketData?.liquidityUSD || 0,
-        priceChange1h: marketData?.priceChange1h || 0,
-        priceChange24h: marketData?.priceChange24h || 0,
-        priceChange7d: marketData?.priceChange7d || 0,
-        age: marketData?.age || 'Unknown',
-        risk: marketData?.risk || 'Medium',
-        verified: marketData?.verified || false,
-        topHolders: marketData?.topHolders || [],
-        recentTrades: marketData?.recentTrades || []
-      };
+  //     // Combine all data
+  //     const comprehensiveInfo = {
+  //       ...basicInfo,
+  //       marketCap: marketData?.marketCap || 0,
+  //       volume24h: marketData?.volume24h || 0,
+  //       holders: marketData?.holders || 0,
+  //       traders24h: marketData?.traders24h || 0,
+  //       liquidity: marketData?.liquidity || 0,
+  //       liquidityUSD: marketData?.liquidityUSD || 0,
+  //       priceChange1h: marketData?.priceChange1h || 0,
+  //       priceChange24h: marketData?.priceChange24h || 0,
+  //       priceChange7d: marketData?.priceChange7d || 0,
+  //       age: marketData?.age || 'Unknown',
+  //       risk: marketData?.risk || 'Medium',
+  //       verified: marketData?.verified || false,
+  //       topHolders: marketData?.topHolders || [],
+  //       recentTrades: marketData?.recentTrades || []
+  //     };
 
-      return { success: true, data: comprehensiveInfo };
+  //     return { success: true, data: comprehensiveInfo };
 
-    } catch (error) {
-      console.error('Error getting comprehensive token info:', error);
-      return { success: false, error: 'Failed to analyze token data' };
+  //   } catch (error) {
+  //     console.error('Error getting comprehensive token info:', error);
+  //     return { success: false, error: 'Failed to analyze token data' };
+  //   }
+  // }
+
+
+async getComprehensiveTokenInfo(tokenAddress, chain = 'solana') {
+  try {
+    // Map chain to DexScreener chainId
+    const chainMap = {
+      'solana': 'solana',
+      'ethereum': 'ethereum',
+      'bsc': 'bsc',
+      'polygon': 'polygon',
+      'arbitrum': 'arbitrum',
+      'base': 'base'
+    };
+    const chainId = chainMap[chain.toLowerCase()];
+    if (!chainId) throw new Error('Unsupported chain');
+
+    debugger
+    // Fetch token pairs from DexScreener
+    const url = `https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`;
+    const response = await axios.get(url, {
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'SmileSnipperBot/1.0'
+      },
+      timeout: 10000
+    });
+    debugger
+
+    let pair = null;
+    if (response.data && response.data.pairs && response.data.pairs.length > 0) {
+      // Pick the most liquid pair for the token on the requested chain
+      const pairs = response.data.pairs
+        .filter(p => p.chainId === chainId)
+        .sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0));
+      pair = pairs[0];
     }
+    debugger
+
+    // Calculate age
+    let age = 'Unknown';
+    if (pair && pair.pairCreatedAt) {
+      const created = new Date(pair.pairCreatedAt);
+      const now = new Date();
+      const ageInDays = Math.floor((now - created) / (1000 * 60 * 60 * 24));
+      const ageInHours = Math.floor((now - created) / (1000 * 60 * 60));
+      age = ageInDays > 0 ? `${ageInDays} day${ageInDays > 1 ? 's' : ''}` : `${ageInHours} hour${ageInHours > 1 ? 's' : ''}`;
+    }
+
+    if (pair) {
+      return {
+        success: true,
+        data: {
+          name: pair.baseToken?.name || 'Unknown Token',
+          symbol: pair.baseToken?.symbol || 'UNKNOWN',
+          address: pair.baseToken?.address || tokenAddress,
+          price: parseFloat(pair.priceUsd || 0),
+          priceUsd: parseFloat(pair.priceUsd || 0),
+          priceNative: parseFloat(pair.priceNative || 0),
+          marketCap: pair.marketCap || 0,
+          liquidity: pair.liquidity?.usd || 0,
+          liquidityUSD: pair.liquidity?.usd || 0,
+          volume24h: pair.volume?.h24 || 0,
+          priceChange1h: pair.priceChange?.h1 || 0,
+          priceChange24h: pair.priceChange?.h24 || 0,
+          priceChange7d: pair.priceChange?.h7d || 0,
+          age,
+          risk: 'Medium', // DexScreener does not provide risk, set default or analyze
+          verified: false, // DexScreener does not provide, set default or analyze
+          topHolders: [], // Not provided by DexScreener
+          recentTrades: [], // Not provided by DexScreener
+          logoURI: '', // Not provided by DexScreener
+          dexScreenerUrl: pair.url,
+          pairAddress: pair.pairAddress,
+          fdv: pair.fdv || 0,
+          txns: pair.txns || {},
+          quoteToken: pair.quoteToken || {},
+          baseToken: pair.baseToken || {},
+          createdAt: pair.pairCreatedAt,
+          holders: null, // Not provided by DexScreener
+          supply: null,  // Not provided by DexScreener
+          decimals: null // Not provided by DexScreener
+        }
+      };
+    }
+
+    // Fallback: Try to get Solana metadata for supply/decimals
+    let metadata = null;
+    if (chainId === 'solana') {
+      try {
+        metadata = await tokenDataService.getSolanaTokenMetadata(tokenAddress);
+      } catch (e) {}
+    }
+
+    // Fallback: Return default structure
+    return {
+      success: true,
+      data: {
+        name: 'Unknown Token',
+        symbol: 'UNKNOWN',
+        address: tokenAddress,
+        price: 0,
+        priceUsd: 0,
+        priceNative: 0,
+        marketCap: 0,
+        liquidity: 0,
+        liquidityUSD: 0,
+        volume24h: 0,
+        priceChange1h: 0,
+        priceChange24h: 0,
+        priceChange7d: 0,
+        age: 'Unknown',
+        risk: 'Medium',
+        verified: false,
+        topHolders: [],
+        recentTrades: [],
+        logoURI: '',
+        dexScreenerUrl: '',
+        pairAddress: '',
+        fdv: 0,
+        txns: {},
+        quoteToken: {},
+        baseToken: {},
+        createdAt: null,
+        holders: null,
+        supply: metadata ? metadata.supply : null,
+        decimals: metadata ? metadata.decimals : null
+      }
+    };
+
+  } catch (error) {
+        debugger
+
+    console.error('Error in getComprehensiveTokenInfo:', error);
+    return {
+      success: false,
+      error: error.message
+    };
   }
+}
+
 
   parseArguments(args, userSettings) {
     let amount = userSettings.amount || 0.1;

@@ -71,6 +71,7 @@ class SellCommand {
           return;
         }
 
+        console.log('User Positions:', positions);
         debugger
         // Parse sell parameters
         const sellParams = this.parseSellArguments(args, positions);

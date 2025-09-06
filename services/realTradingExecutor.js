@@ -6,7 +6,9 @@ const walletService = require('./walletService');
 const userService = require('../users/userService');
 const tokenDataService = require('./tokenDataService');
 const axios = require('axios');
-
+  const { Orca, Network, OrcaPoolConfig, getOrca, OrcaFarmConfig } = require("@orca-so/sdk");
+// const { Jupiter } = require("@jup-ag/core");
+const { createJupiterApiClient } = require("@jup-ag/api");
 // Jupiter API for Solana swaps
 const JUPITER_API = 'https://quote-api.jup.ag/v6';
 const JUPITER_SWAP_API = 'https://quote-api.jup.ag/v6/swap';
@@ -74,6 +76,7 @@ const COMMON_TOKENS = {
     USDC: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'
   }
 };
+    const CACHE_DURATION = 20 * 60 * 1000; // 5 minutes
 
 class RealTradingExecutor {
   constructor() {
@@ -87,7 +90,12 @@ class RealTradingExecutor {
       totalVolume: 0,
       chainStats: {}
     };
-    
+
+// cache object
+  this.tokenListCache = {
+    data: null,
+    timestamp: 0
+  };
     // Auto-initialize
     this.initialize();
   }
@@ -176,7 +184,9 @@ class RealTradingExecutor {
       // Execute trade based on chain
       switch (chain.toLowerCase()) {
         case 'solana':
-          result = await this.executeSolanaBuy(privateKey, tokenAddress, feeInfo.userAmount, slippage);
+          debugger
+          result = await this.executeSwap(privateKey,"So11111111111111111111111111111111111111112", tokenAddress, feeInfo.userAmount, slippage);
+          //result = await this.executeSolanaBuy(privateKey, tokenAddress, feeInfo.userAmount, slippage);
           break;
         case 'ethereum':
         case 'bsc':
@@ -201,6 +211,7 @@ class RealTradingExecutor {
 
       // Add position tracking
       const tokenInfo = await tokenDataService.getTokenInfo(tokenAddress, chain);
+      console.log('Token Info:', tokenInfo);
       await userService.addPosition(userId, tokenAddress, result.tokensReceived, result.executedPrice, 'manual_buy',tokenInfo?.name, tokenInfo?.symbol);
 
       console.log(`✅ BUY order ${tradeId} executed successfully`);
@@ -461,116 +472,403 @@ class RealTradingExecutor {
   //   }
   // }
 
-  async executeSolanaBuy(privateKeyHex, tokenAddress, amount, slippage) {
+// ...existing code...
+
+async executeSolanaBuy(privateKeyHex, tokenAddress, amount, slippage) {
   try {
     const connection = await this.rpcManager.getSolanaConnection();
-
-    debugger;
-    // Convert hex private key to Keypair
     const secretKey = new Uint8Array(Buffer.from(privateKeyHex, 'hex'));
     const wallet = Keypair.fromSecretKey(secretKey);
 
-    const amountLamports = Math.floor(amount * LAMPORTS_PER_SOL);
+    debugger;
+    // Initialize Orca SDK
+    const orca = getOrca(connection);
 
-    // Get quote from Jupiter with retry logic
-    let quoteData;
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      try {
-        const quoteUrl = `${JUPITER_API}/quote?inputMint=${COMMON_TOKENS.solana.SOL}&outputMint=${tokenAddress}&amount=${amountLamports}&slippageBps=${slippage * 100}`;
-        console.log(quoteUrl);
+    // Try to find a pool with SOL or USDC as the input token
+    const pools = orca.getAllPools();
+    let pool = null;
+    let inputToken = null;
+    let outputToken = null;
 
-        const quoteResponse = await axios.get(quoteUrl, { timeout: 10000 });
-        if (!quoteResponse.data) throw new Error('No quote data received');
-
-        quoteData = quoteResponse.data;
-        break;
-      } catch (error) {
-        console.warn(`Jupiter quote attempt ${attempt} failed:`, error.message);
-        if (attempt === 3) throw error;
-        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+    // Try SOL/tokenAddress
+    pool = Object.values(pools).find(p =>
+      (p.getTokenA().mint.toBase58() === COMMON_TOKENS.solana.SOL && p.getTokenB().mint.toBase58() === tokenAddress) ||
+      (p.getTokenB().mint.toBase58() === COMMON_TOKENS.solana.SOL && p.getTokenA().mint.toBase58() === tokenAddress)
+    );
+    if (pool) {
+      if (pool.getTokenA().mint.toBase58() === COMMON_TOKENS.solana.SOL) {
+        inputToken = pool.getTokenA();
+        outputToken = pool.getTokenB();
+      } else {
+        inputToken = pool.getTokenB();
+        outputToken = pool.getTokenA();
+      }
+    } else {
+      // Try USDC/tokenAddress
+      pool = Object.values(pools).find(p =>
+        (p.getTokenA().mint.toBase58() === COMMON_TOKENS.solana.USDC && p.getTokenB().mint.toBase58() === tokenAddress) ||
+        (p.getTokenB().mint.toBase58() === COMMON_TOKENS.solana.USDC && p.getTokenA().mint.toBase58() === tokenAddress)
+      );
+      if (pool) {
+        if (pool.getTokenA().mint.toBase58() === COMMON_TOKENS.solana.USDC) {
+          inputToken = pool.getTokenA();
+          outputToken = pool.getTokenB();
+        } else {
+          inputToken = pool.getTokenB();
+          outputToken = pool.getTokenA();
+        }
       }
     }
 
-    // Get swap transaction from Jupiter
-    const swapResponse = await axios.post(
-      JUPITER_SWAP_API,
-      {
-        quoteResponse: quoteData,
-        userPublicKey: wallet.publicKey.toString(),
-        wrapAndUnwrapSol: true,
-        dynamicComputeUnitLimit: true,
-        prioritizationFeeLamports: 100000
-      },
-      { timeout: 10000 }
-    );
-
-    if (!swapResponse.data?.swapTransaction) {
-      throw new Error('No swap transaction received');
+    if (!pool) {
+      throw new Error('No Orca pool found for this token. It may not be tradable on Orca.');
     }
 
-    const { swapTransaction } = swapResponse.data;
+    // Amount in input token's smallest unit
+    const inputDecimals = inputToken.scale;
+    const amountIn = Math.floor(amount * Math.pow(10, inputDecimals));
 
-let txHash;
-for (let attempt = 1; attempt <= 3; attempt++) {
-  try {
-    // 🔁 Regenerate swapTransaction to get fresh blockhash
-    const { data: refreshedSwap } = await axios.post(JUPITER_SWAP_API, {
-      quoteResponse: quoteData,
-      userPublicKey: wallet.publicKey.toString(),
-      wrapAndUnwrapSol: true,
-      dynamicComputeUnitLimit: true,
-      prioritizationFeeLamports: 100000
-    }, { timeout: 10000 });
+    // Get quote
+    const quote = await pool.getQuote(inputToken, amountIn, slippage / 100);
 
-    if (!refreshedSwap?.swapTransaction) throw new Error("No swap transaction received on retry");
+    // Execute swap
+    const swapPayload = await pool.swap(wallet, inputToken, amountIn, quote.getMinOutputAmount());
+    const txHash = await swapPayload.execute();
 
-    const { swapTransaction } = refreshedSwap;
-
-    const transactionBuf = Buffer.from(swapTransaction, 'base64');
-    const transaction = VersionedTransaction.deserialize(transactionBuf);
-
-    // Sign it
-    transaction.sign([wallet]);
-
-    // Send
-    txHash = await connection.sendRawTransaction(transaction.serialize(), {
-      skipPreflight: false,
-      preflightCommitment: 'confirmed',
-      maxRetries: 3
-    });
-
-    // Confirm
-    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
-    await connection.confirmTransaction({
-      signature: txHash,
-      blockhash,
-      lastValidBlockHeight
-    }, 'confirmed');
-
-    break; // ✅ success
-
-  } catch (error) {
-    console.warn(`Transaction attempt ${attempt} failed: ${error.message}`);
-    if (attempt === 3) throw error;
-    await new Promise(res => setTimeout(res, 2000 * attempt));
-  }
-}
-
-    const executedPrice = parseInt(quoteData.inAmount) / parseInt(quoteData.outAmount);
-    const tokensReceived = parseInt(quoteData.outAmount) / Math.pow(10, 9); // Assumes 9 decimals
+    // Calculate executed price and tokens received
+    const executedPrice = amount / (quote.getMinOutputAmount().toNumber() / Math.pow(10, outputToken.scale));
+    const tokensReceived = quote.getMinOutputAmount().toNumber() / Math.pow(10, outputToken.scale);
 
     return {
       txHash,
       executedPrice,
       tokensReceived,
-      gasUsed: 'N/A' // Solana doesn't report gas like EVM chains
+      gasUsed: 'N/A'
     };
-
   } catch (error) {
-    console.error('Solana buy execution error:', error);
-    throw new Error(`Solana buy failed: ${error.message}`);
+    debugger;
+    console.error('Orca buy execution error:', error);
+    throw new Error(`Orca buy failed: ${error.message}`);
   }
 }
+
+
+// 🔹 Fetch decimals for a token mint (fallback for unofficial tokens)
+
+// ✅ Get token decimals (using Jupiter token list first, fallback to chain if not found)
+async getTokenDecimals(connection, mintAddress) {
+  try {
+    debugger;
+    const now = Date.now();
+        let tokenList
+
+  // if cached and still valid, return it
+  if (this.tokenListCache.data && now - this.tokenListCache.timestamp < CACHE_DURATION) {
+    tokenList = this.tokenListCache.data;
+  }
+  else{
+    // 1. Check Jupiter token list
+    debugger
+    const response = await axios.get("https://token.jup.ag/all");
+    tokenList = response.data;
+        debugger
+
+    // cache it
+    this.tokenListCache = {
+      data: response.data,
+      timestamp: now
+    };
+  }
+
+    const tokenInfo = tokenList.find(t => t.address === mintAddress);
+    if (tokenInfo) {
+      return tokenInfo.decimals;
+    }
+
+        debugger
+
+    // 2. Fallback → on-chain account info
+    const mintPublicKey = new PublicKey(mintAddress);
+    const accountInfo = await connection.getParsedAccountInfo(mintPublicKey);
+
+    if (accountInfo?.value?.data?.parsed?.info?.decimals !== undefined) {
+      return accountInfo.value.data.parsed.info.decimals;
+    }
+
+    throw new Error("Decimals not found for mint " + mintAddress);
+  } catch (err) {
+        debugger;
+
+    console.error(`❌ Failed to fetch decimals for ${mintAddress}:`, err.message);
+    throw err;
+  }
+}
+
+// 🔹 Main swap function using @jup-ag/api
+async executeSwap(privateKeyHex, inputMintAddress, outputMintAddress, amountInUi, slippageBps = 50) {
+  try {
+        debugger;
+
+    // 1. Setup Solana connection
+    //const connection = new Connection("https://api.mainnet-beta.solana.com", "confirmed");
+    const connection = await this.rpcManager.getSolanaConnection();
+
+    // 2. Load wallet
+    const secretKey = new Uint8Array(Buffer.from(privateKeyHex, "hex"));
+    const wallet = Keypair.fromSecretKey(secretKey);
+
+    debugger
+    // 3. Get decimals
+    const inputDecimals = await this.getTokenDecimals(connection, inputMintAddress);
+    const outputDecimals = await this.getTokenDecimals(connection, outputMintAddress);
+
+    // 4. Convert UI amount → raw integer
+    const amountIn = BigInt(Math.floor(amountInUi * Math.pow(10, inputDecimals)));
+
+    debugger
+    // 5. Initialize Jupiter API client
+    const jupiterApi = createJupiterApiClient();
+    debugger
+
+    // 6. Get quote
+    const quoteResponse = await jupiterApi.quoteGet({
+      inputMint: inputMintAddress,
+      outputMint: outputMintAddress,
+      amount: amountIn.toString(),
+      slippageBps,
+    });
+    debugger
+
+    const bestQuote = quoteResponse.data ? quoteResponse.data[0] : quoteResponse;
+    if (!bestQuote) {
+      throw new Error("No route found for this token pair.");
+    }
+
+    console.log("🔎 Best quote found:", {
+      inAmount: bestQuote.inAmount,
+      outAmount: bestQuote.outAmount,
+    });
+    debugger
+
+    // 7. Build swap transaction
+    // const swapResponse = await jupiterApi.swapPost({
+    //   quoteResponse: bestQuote,
+    //   userPublicKey: wallet.publicKey.toBase58(),
+    // });
+    const swapRequest = {
+      quoteResponse: bestQuote,
+      userPublicKey: wallet.publicKey.toBase58(),
+      wrapAndUnwrapSol: true, // important if SOL <-> token
+    };
+
+    const swapResponse = await jupiterApi.swapPost({ swapRequest });
+
+    debugger;
+const serializedTx = swapResponse.swapTransaction; // ✅ correct
+const txBuffer = Buffer.from(serializedTx, "base64");
+
+// Use VersionedTransaction (not legacy Transaction)
+const transaction = VersionedTransaction.deserialize(txBuffer);
+debugger
+// Sign with your wallet
+transaction.sign([wallet]);
+debugger
+// Send + confirm
+const txid = await this.sendWithRetry(connection, transaction, {
+  skipPreflight: false,
+  preflightCommitment: "confirmed",
+});
+debugger
+// Send
+// const txid = await connection.sendTransaction(transaction, {
+//   skipPreflight: false,
+//   preflightCommitment: "confirmed",
+// });
+// debugger
+// await connection.confirmTransaction(txid, "confirmed");
+console.log("✅ Swap successful! Tx:", txid);
+    // // 8. Sign and send
+    // const txid = await connection.sendTransaction(
+    //   Transaction.from(txBuffer),
+    //   [wallet],
+    //   { skipPreflight: false, preflightCommitment: "confirmed" }
+    // );
+    // debugger
+
+    // await connection.confirmTransaction(txid, "confirmed");
+    console.log("✅ Swap successful! Tx:", txid);
+debugger
+    // 9. Convert output back to UI units
+    const outputUi = Number(bestQuote.outAmount) / Math.pow(10, outputDecimals);
+    const tokensReceived = Number(bestQuote.outAmount) / Math.pow(10, outputDecimals);
+    const executedPrice = tokensReceived / amountInUi;
+
+    debugger
+
+    return {
+      txid,
+      inputAmountUi: amountInUi,
+      outputAmountUi: outputUi,
+      inputMint: inputMintAddress,
+      outputMint: outputMintAddress,
+      txHash: txid,
+      executedPrice,
+      tokensReceived,
+      gasUsed: "N/A", // Solana doesn't expose gas
+
+    };
+  } catch (err) {
+        debugger;
+
+    console.error("❌ Swap failed:", err.message);
+    throw err;
+  }
+}
+
+// --- 🔹 Reliable send with retries ---
+async sendWithRetry(connection, tx, opts, retries = 3) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      debugger;
+      const sig = await connection.sendRawTransaction(tx.serialize(), opts);
+      debugger
+      await connection.confirmTransaction(sig, "confirmed");
+      return sig;
+    } catch (e) {
+      debugger
+      console.warn(`⚠️ Attempt ${i + 1} failed:`, e.message);
+      if (i === retries - 1) throw e; // rethrow on last attempt
+      await new Promise(r => setTimeout(r, 1000)); // wait 1s
+    }
+  }
+}
+// 🔹 Example usage
+// (async () => {
+//   const privateKeyHex = "YOUR_PRIVATE_KEY_HEX"; // Replace with your wallet’s private key in HEX
+
+//   // Example: USDC → SOL
+//   const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+//   const SOL = "So11111111111111111111111111111111111111112";
+
+//   // Swap 2.5 USDC → SOL
+//   const result = await executeSwap(privateKeyHex, USDC, SOL, 2.5, 50);
+//   console.log("Swap result:", result);
+// })();
+
+//   async executeSolanaBuy(privateKeyHex, tokenAddress, amount, slippage) {
+//   try {
+//     const connection = await this.rpcManager.getSolanaConnection();
+
+//     debugger;
+//     // Convert hex private key to Keypair
+//     const secretKey = new Uint8Array(Buffer.from(privateKeyHex, 'hex'));
+//     const wallet = Keypair.fromSecretKey(secretKey);
+
+//     const amountLamports = Math.floor(amount * LAMPORTS_PER_SOL);
+
+//     // Get quote from Jupiter with retry logic
+//     let quoteData;
+//     for (let attempt = 1; attempt <= 3; attempt++) {
+//       try {
+//         const quoteUrl = `${JUPITER_API}/quote?inputMint=${COMMON_TOKENS.solana.SOL}&outputMint=${tokenAddress}&amount=${amountLamports}&slippageBps=${slippage * 100}`;
+//         console.log(quoteUrl);
+
+//         debugger
+//         const quoteResponse = await axios.get(quoteUrl, { timeout: 10000 });
+//         debugger
+//         console.log('Quote Response:', quoteResponse);
+//         if (!quoteResponse.data) throw new Error('No quote data received');
+
+//         quoteData = quoteResponse.data;
+//         break;
+//       } catch (error) {
+//         debugger
+//         console.warn(`Jupiter quote attempt ${attempt} failed:`, error.message);
+//         if (attempt === 3) throw error;
+//         await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+//       }
+//     }
+
+//     // Get swap transaction from Jupiter
+//     const swapResponse = await axios.post(
+//       JUPITER_SWAP_API,
+//       {
+//         quoteResponse: quoteData,
+//         userPublicKey: wallet.publicKey.toString(),
+//         wrapAndUnwrapSol: true,
+//         dynamicComputeUnitLimit: true,
+//         prioritizationFeeLamports: 100000
+//       },
+//       { timeout: 10000 }
+//     );
+
+//     if (!swapResponse.data?.swapTransaction) {
+//       throw new Error('No swap transaction received');
+//     }
+
+//     const { swapTransaction } = swapResponse.data;
+
+// let txHash;
+// for (let attempt = 1; attempt <= 3; attempt++) {
+//   try {
+//     // 🔁 Regenerate swapTransaction to get fresh blockhash
+//     const { data: refreshedSwap } = await axios.post(JUPITER_SWAP_API, {
+//       quoteResponse: quoteData,
+//       userPublicKey: wallet.publicKey.toString(),
+//       wrapAndUnwrapSol: true,
+//       dynamicComputeUnitLimit: true,
+//       prioritizationFeeLamports: 100000
+//     }, { timeout: 10000 });
+
+//     if (!refreshedSwap?.swapTransaction) throw new Error("No swap transaction received on retry");
+
+//     const { swapTransaction } = refreshedSwap;
+
+//     const transactionBuf = Buffer.from(swapTransaction, 'base64');
+//     const transaction = VersionedTransaction.deserialize(transactionBuf);
+
+//     // Sign it
+//     transaction.sign([wallet]);
+
+//     // Send
+//     txHash = await connection.sendRawTransaction(transaction.serialize(), {
+//       skipPreflight: false,
+//       preflightCommitment: 'confirmed',
+//       maxRetries: 3
+//     });
+
+//     // Confirm
+//     const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+//     await connection.confirmTransaction({
+//       signature: txHash,
+//       blockhash,
+//       lastValidBlockHeight
+//     }, 'confirmed');
+
+//     break; // ✅ success
+
+//   } catch (error) {
+//     console.warn(`Transaction attempt ${attempt} failed: ${error.message}`);
+//     if (attempt === 3) throw error;
+//     await new Promise(res => setTimeout(res, 2000 * attempt));
+//   }
+// }
+
+//     const executedPrice = parseInt(quoteData.inAmount) / parseInt(quoteData.outAmount);
+//     const tokensReceived = parseInt(quoteData.outAmount) / Math.pow(10, 9); // Assumes 9 decimals
+
+//     return {
+//       txHash,
+//       executedPrice,
+//       tokensReceived,
+//       gasUsed: 'N/A' // Solana doesn't report gas like EVM chains
+//     };
+
+//   } catch (error) {
+//     console.error('Solana buy execution error:', error);
+//     throw new Error(`Solana buy failed: ${error.message}`);
+//   }
+// }
 
   // Enhanced Solana sell via Jupiter
   async executeSolanaSell(privateKeyHex, tokenAddress, amount, slippage) {
@@ -1059,5 +1357,6 @@ function getRealTradingExecutor() {
 
 module.exports = {
   getRealTradingExecutor,
+  //executeSwap,
   RealTradingExecutor
 };

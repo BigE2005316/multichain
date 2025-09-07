@@ -116,6 +116,7 @@ async function getUserData(userId) {
 async function saveUserData(userId, updateData) {
   return await User.findOneAndUpdate(
     { tgId: userId },
+    //updateData,
     { $set: updateData },
     { upsert: true, new: true }
   );
@@ -425,6 +426,7 @@ async function addPosition(userId, tokenAddress, amount, price, sourceWallet, to
   }
   
   if (!userData.positions[tokenAddress]) {
+    console.log(`position entry for token ${tokenAddress} does not exist, creating new one.`);
     userData.positions[tokenAddress] = {
       totalAmount: 0,
       avgPrice: 0,
@@ -451,7 +453,18 @@ async function addPosition(userId, tokenAddress, amount, price, sourceWallet, to
   position.avgPrice = totalValue / position.totalAmount;
   position.tokenName = tokenName || position.tokenName
   position.tokenSymbol = tokenSymbol || position.tokenSymbol
-  await saveUserData(userId, userData);
+  userData.positions[tokenAddress] = position;
+  console.log(`Added position for ${position}`);
+  let updatedPosition = {
+    [`positions.${tokenAddress}`]: position
+  }
+  await saveUserData(userId, updatedPosition);
+  // await User.findOneAndUpdate(
+  //   { tgId: userId },
+  //   { $set: { [`positions.${tokenAddress}`]: position } },
+  //   { upsert: true, new: true }
+  // );
+  //await saveUserData(userId, userData);
   console.log(`User ${userData}`);
   console.log(`Added position for user ${position.tokenName}: ${position.tokenSymbol}:  ${position.tokenAddress}: `);
   return position;
@@ -504,15 +517,19 @@ async function sellPosition(userId, tokenAddress, sellPercentage, currentPrice) 
 
 // Get user positions
 async function getUserPositions(userId) {
+  debugger
   const userData = await ensureUser(userId);
+  debugger
   const positions = [];
   
   if (!userData.positions) {
+    console.log(`No positions found for user ${userId}`);
     return positions;
   }
+  console.log(`User positions in getUserPositions: ${JSON.stringify(userData.positions)}`);
   debugger
-  for (const [tokenAddress, position] of Object.entries(userData.positions)) {
-    debugger
+if (userData.positions instanceof Map) {
+  for (const [tokenAddress, position] of userData.positions.entries()) {
     positions.push({
       tokenAddress,
       tokenSymbol: position.tokenSymbol || 'Unknown',
@@ -523,6 +540,31 @@ async function getUserPositions(userId) {
       trades: position.copyTrades || []
     });
   }
+} else if (typeof userData.positions === 'object' && userData.positions !== null) {
+  for (const [tokenAddress, position] of Object.entries(userData.positions)) {
+    positions.push({
+      tokenAddress,
+      tokenSymbol: position.tokenSymbol || 'Unknown',
+      tokenName: position.tokenName || 'Unknown Token',
+      amount: position.totalAmount,
+      avgBuyPrice: position.avgPrice,
+      chain: position.chain || userData.chain || 'solana',
+      trades: position.copyTrades || []
+    });
+  }
+}
+  // for (const [tokenAddress, position] of Object.entries(userData.positions)) {
+  //   debugger
+  //   positions.push({
+  //     tokenAddress,
+  //     tokenSymbol: position.tokenSymbol || 'Unknown',
+  //     tokenName: position.tokenName || 'Unknown Token',
+  //     amount: position.totalAmount,
+  //     avgBuyPrice: position.avgPrice,
+  //     chain: position.chain || userData.chain || 'solana',
+  //     trades: position.copyTrades || []
+  //   });
+  // }
   
   return positions;
 }

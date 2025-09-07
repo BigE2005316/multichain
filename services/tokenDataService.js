@@ -196,34 +196,172 @@ async function getTokenData(tokenAddress, chain) {
 // Get token info (simplified version of getTokenData) , follow come method
 async function getTokenInfo(tokenAddress, chain) {
   try {
-    // Try to get from cache first
-    const cacheKey = `${chain}:${tokenAddress}`;
-    const cached = tokenCache.get(cacheKey);
+    // Map chain to DexScreener chainId
+    const chainMap = {
+      'solana': 'solana',
+      'ethereum': 'ethereum',
+      'bsc': 'bsc',
+      'polygon': 'polygon',
+      'arbitrum': 'arbitrum',
+      'base': 'base'
+    };
+    const chainId = chainMap[chain.toLowerCase()];
+    if (!chainId) throw new Error('Unsupported chain');
+
     debugger
-    if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
-      console.log('Returning cached token info for', tokenAddress);
-      return cached.data;
+    // Fetch token pairs from DexScreener
+    const url = `https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`;
+    const response = await axios.get(url, {
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'SmileSnipperBot/1.0'
+      },
+      timeout: 10000
+    });
+    debugger
+
+    let pair = null;
+    if (response.data && response.data.pairs && response.data.pairs.length > 0) {
+      // Pick the most liquid pair for the token on the requested chain
+      const pairs = response.data.pairs
+        .filter(p => p.chainId === chainId)
+        .sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0));
+      pair = pairs[0];
     }
     debugger
-    // Get full token data
-    const tokenData = await getTokenData(tokenAddress, chain);
-    debugger
-    return tokenData;
-  } catch (err) {
-    console.error('Error getting token info:', err);
+
+    // Calculate age
+    let age = 'Unknown';
+    if (pair && pair.pairCreatedAt) {
+      const created = new Date(pair.pairCreatedAt);
+      const now = new Date();
+      const ageInDays = Math.floor((now - created) / (1000 * 60 * 60 * 24));
+      const ageInHours = Math.floor((now - created) / (1000 * 60 * 60));
+      age = ageInDays > 0 ? `${ageInDays} day${ageInDays > 1 ? 's' : ''}` : `${ageInHours} hour${ageInHours > 1 ? 's' : ''}`;
+    }
+
+    if (pair) {
+      return {
+        success: true,
+        data: {
+          name: pair.baseToken?.name || 'Unknown Token',
+          symbol: pair.baseToken?.symbol || 'UNKNOWN',
+          address: pair.baseToken?.address || tokenAddress,
+          price: parseFloat(pair.priceUsd || 0),
+          priceUsd: parseFloat(pair.priceUsd || 0),
+          priceNative: parseFloat(pair.priceNative || 0),
+          marketCap: pair.marketCap || 0,
+          liquidity: pair.liquidity?.usd || 0,
+          liquidityUSD: pair.liquidity?.usd || 0,
+          volume24h: pair.volume?.h24 || 0,
+          priceChange1h: pair.priceChange?.h1 || 0,
+          priceChange24h: pair.priceChange?.h24 || 0,
+          priceChange7d: pair.priceChange?.h7d || 0,
+          age,
+          risk: 'Medium', // DexScreener does not provide risk, set default or analyze
+          verified: false, // DexScreener does not provide, set default or analyze
+          topHolders: [], // Not provided by DexScreener
+          recentTrades: [], // Not provided by DexScreener
+          logoURI: '', // Not provided by DexScreener
+          dexScreenerUrl: pair.url,
+          pairAddress: pair.pairAddress,
+          fdv: pair.fdv || 0,
+          txns: pair.txns || {},
+          quoteToken: pair.quoteToken || {},
+          baseToken: pair.baseToken || {},
+          createdAt: pair.pairCreatedAt,
+          holders: null, // Not provided by DexScreener
+          supply: null,  // Not provided by DexScreener
+          decimals: null // Not provided by DexScreener
+        }
+      };
+    }
+
+    // Fallback: Try to get Solana metadata for supply/decimals
+    let metadata = null;
+    if (chainId === 'solana') {
+      try {
+        metadata = await tokenDataService.getSolanaTokenMetadata(tokenAddress);
+      } catch (e) {}
+    }
+
+    // Fallback: Return default structure
     return {
-      name: 'Unknown Token',
-      symbol: 'UNKNOWN',
-      address: tokenAddress,
-      price: 0,
-      marketCap: 0,
-      liquidity: 0,
-      volume24h: 0,
-      priceChange24h: 0,
-      explorerLinks: getExplorerLinks(tokenAddress, chain)
+      success: true,
+      data: {
+        name: 'Unknown Token',
+        symbol: 'UNKNOWN',
+        address: tokenAddress,
+        price: 0,
+        priceUsd: 0,
+        priceNative: 0,
+        marketCap: 0,
+        liquidity: 0,
+        liquidityUSD: 0,
+        volume24h: 0,
+        priceChange1h: 0,
+        priceChange24h: 0,
+        priceChange7d: 0,
+        age: 'Unknown',
+        risk: 'Medium',
+        verified: false,
+        topHolders: [],
+        recentTrades: [],
+        logoURI: '',
+        dexScreenerUrl: '',
+        pairAddress: '',
+        fdv: 0,
+        txns: {},
+        quoteToken: {},
+        baseToken: {},
+        createdAt: null,
+        holders: null,
+        supply: metadata ? metadata.supply : null,
+        decimals: metadata ? metadata.decimals : null
+      }
+    };
+
+  } catch (error) {
+        debugger
+
+    console.error('Error in getComprehensiveTokenInfo:', error);
+    return {
+      success: false,
+      error: error.message
     };
   }
+
 }
+// async function getTokenInfo(tokenAddress, chain) {
+//   try {
+//     // Try to get from cache first
+//     const cacheKey = `${chain}:${tokenAddress}`;
+//     const cached = tokenCache.get(cacheKey);
+//     debugger
+//     if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+//       console.log('Returning cached token info for', tokenAddress);
+//       return cached.data;
+//     }
+//     debugger
+//     // Get full token data
+//     const tokenData = await getTokenData(tokenAddress, chain);
+//     debugger
+//     return tokenData;
+//   } catch (err) {
+//     console.error('Error getting token info:', err);
+//     return {
+//       name: 'Unknown Token',
+//       symbol: 'UNKNOWN',
+//       address: tokenAddress,
+//       price: 0,
+//       marketCap: 0,
+//       liquidity: 0,
+//       volume24h: 0,
+//       priceChange24h: 0,
+//       explorerLinks: getExplorerLinks(tokenAddress, chain)
+//     };
+//   }
+// }
 
   // async function getComprehensiveTokenInfo(tokenAddress, chain) {
   //   try {

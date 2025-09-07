@@ -2,6 +2,8 @@
 const { getServiceManager } = require('../core/ServiceManager');
 const userService = require('../users/userService');
 const tradingService = require('../services/advancedTradingEngine')
+const tokenDataService = require('../services/tokenDataService');
+
 class SellCommand {
   constructor(botCore) {
     this.botCore = botCore;
@@ -197,8 +199,8 @@ class SellCommand {
           return result;
         }
         
-        if (amount > position.balance) {
-          result.error = `Insufficient balance. You have ${position.balance} ${position.tokenSymbol}`;
+        if (amount > position.totalAmount) {
+          result.error = `Insufficient balance. You have ${position.totalAmount} ${position.tokenSymbol}`;
           return result;
         }
         
@@ -234,30 +236,38 @@ class SellCommand {
     
     message += `📊 **Position Details:**\n`;
     for (const position of sellParams.selectedPositions) {
-      let sellAmount = position.balance;
+      let sellAmount = position.totalAmount;
       
       if (sellParams.type === 'percentage') {
-        sellAmount = position.balance * (sellParams.percentage / 100);
+        sellAmount = position.totalAmount * (sellParams.percentage / 100);
       } else if (sellParams.type === 'amount') {
         sellAmount = sellParams.amount;
       }
-      
-      const sellValue = sellAmount * position.currentPrice;
+      debugger
+      if(!position.tokenAddress){
+        console.log('Missing token address for position:', position);
+        throw new Error('Missing token address');
+      }
+      let tokenInfo = await tokenDataService.getTokenInfo(position.tokenAddress, chain);
+      // const sellValue = sellAmount * position.currentPrice;
+      debugger
+      const sellValue = sellAmount * tokenInfo.price;
+
       totalValue += sellValue;
-      
+      console.log('sellAmount:', sellAmount, 'sellValue:', sellValue, 'position.totalAmount', position.amount);
       message += `• **${position.tokenSymbol}:** ${sellAmount.toFixed(4)} tokens\n`;
-      message += `  └ Value: ~$${sellValue.toFixed(2)} (${(sellAmount/position.balance*100).toFixed(1)}%)\n`;
+      message += `  └ Value: ~$${sellValue.toFixed(6)} (${(sellAmount/position.amount*100).toFixed(6)}%)\n`;
     }
     
     message += `\n💰 **Order Summary:**\n`;
-    message += `• **Total Est. Value:** $${totalValue.toFixed(2)}\n`;
+    message += `• **Total Est. Value:** $${totalValue.toFixed(6)}\n`;
     message += `• **Network:** ${chain.toUpperCase()}\n`;
     
     const devFeePercent = parseFloat(process.env.DEV_FEE_PERCENT || '3');
     const devFee = totalValue * (devFeePercent / 100);
-    message += `• **Dev Fee (${devFeePercent}%):** $${devFee.toFixed(2)}\n`;
-    message += `• **Net Proceeds:** $${(totalValue - devFee).toFixed(2)}\n`;
-    
+    message += `• **Dev Fee (${devFeePercent}%):** $${devFee.toFixed(6)}\n`;
+    message += `• **Net Proceeds:** $${(totalValue - devFee).toFixed(6)}\n`;
+
     message += `\n✅ **Reply YES to confirm or NO to cancel**\n`;
     message += `⏰ Expires in 60 seconds`;
 
@@ -287,10 +297,10 @@ class SellCommand {
       const results = [];
       
       for (const position of sellData.sellParams.selectedPositions) {
-        let sellAmount = position.balance;
+        let sellAmount = position.totalAmount;
         
         if (sellData.sellParams.type === 'percentage') {
-          sellAmount = position.balance * (sellData.sellParams.percentage / 100);
+          sellAmount = position.totalAmount * (sellData.sellParams.percentage / 100);
         } else if (sellData.sellParams.type === 'amount') {
           sellAmount = sellData.sellParams.amount;
         }

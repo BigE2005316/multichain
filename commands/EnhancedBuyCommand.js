@@ -15,8 +15,17 @@ class EnhancedBuyCommand {
 
   async execute(ctx) {
     const userId = ctx.from.id;
-    const messageText = ctx.message.text;
-    const args = messageText.split(' ').slice(1);
+    let args;
+      if (ctx.session && ctx.session.buyViaButton) {
+        // Use session data from button flow
+        args = ctx.session.buyText.split(' ');
+        ctx.session.buyViaButton = false; // Clear the flag after use
+      } else {
+        args = ctx.message.text.split(' ').slice(1);
+      }
+    
+    // const messageText = ctx.message.text;
+    // const args = messageText.split(' ').slice(1);
 
     let loadingMsg;
     

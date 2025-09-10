@@ -565,9 +565,190 @@ Your ultimate multi-chain copy trading companion with advanced features that out
 • /walletstatus - View all wallet status
 
 Type /help to see all commands and start your trading journey!`, 
-        { parse_mode: 'Markdown' });
+        { parse_mode: 'Markdown',
+          reply_markup: {
+        inline_keyboard: [
+          [{ text: 'Buy', callback_data: 'buy' }, { text: 'Sell', callback_data: 'sell' }],
+          [{ text: 'Wallet', callback_data: 'wallet' }, { text: 'Help', callback_data: 'help' }, { text: 'Settings', callback_data: 'settings' }],
+          [{ text: 'Track', callback_data: 'track' }, { text: 'Chains', callback_data: 'chains' }, { text: 'Copytrade', callback_data: 'copytrade' }],
+          [{ text: 'Active Orders', callback_data: 'active_orders' }, { text: 'Balance', callback_data: 'balance' }, { text: 'Positions', callback_data: 'positions' }],
+        ]
+      }
+         });
     });
 
+// Clear session before starting a new buy process
+this.botCore.registerCallbackHandler('buy', async (ctx) => {
+  ctx.session = ctx.session || {};
+  // Clear previous buy session data
+  ctx.session.buyChain = null;
+  ctx.session.buyTokenAddress = null;
+  ctx.session.buyAmount = null;
+  await ctx.reply(`select the chain you want to trade on`, 
+    { parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: 'SOL', callback_data: 'sol' }, { text: 'ETH', callback_data: 'eth' }],
+          [{ text: 'BASE', callback_data: 'base' }, { text: 'SONIC', callback_data: 'sonic' }],
+        ]
+      }
+    });
+
+
+// Similarly, clear session for 'sell' or other processes if needed
+this.botCore.registerCallbackHandler('sell', async (ctx) => {
+  ctx.session = ctx.session || {};
+  ctx.session.sellChain = null;
+  ctx.session.sellTokenAddress = null;
+  ctx.session.sellAmount = null;
+  // ...rest of your sell logic...
+});
+
+});
+
+// Add these handlers after your 'buy' callback handler
+
+// 1. Chain selection handler
+this.botCore.registerCallbackHandler('sol', async (ctx) => {
+  ctx.session = ctx.session || {};
+  ctx.session.buyChain = 'solana';
+  await ctx.reply('🔗 Please input the *token address* you want to buy on Solana:', { parse_mode: 'Markdown' });
+});
+this.botCore.registerCallbackHandler('eth', async (ctx) => {
+  ctx.session = ctx.session || {};
+  ctx.session.buyChain = 'ethereum';
+  await ctx.reply('🔗 Please input the *token address* you want to buy on Ethereum:', { parse_mode: 'Markdown' });
+});
+this.botCore.registerCallbackHandler('base', async (ctx) => {
+  ctx.session = ctx.session || {};
+  ctx.session.buyChain = 'base';
+  await ctx.reply('🔗 Please input the *token address* you want to buy on Base:', { parse_mode: 'Markdown' });
+});
+this.botCore.registerCallbackHandler('sonic', async (ctx) => {
+  ctx.session = ctx.session || {};
+  ctx.session.buyChain = 'sonic';
+  await ctx.reply('🔗 Please input the *token address* you want to buy on Sonic:', { parse_mode: 'Markdown' });
+});
+
+// 2. Listen for token address input after chain selection
+// this.botCore.bot.on('text', async (ctx) => {
+//   ctx.session = ctx.session || {};
+//   // Only proceed if we're expecting a token address for buy
+//   if (ctx.session.buyChain && !ctx.session.buyTokenAddress) {
+//     const tokenAddress = ctx.message.text.trim();
+//     ctx.session.buyTokenAddress = tokenAddress;
+
+//     // Fetch token info
+//     const tokenDataService = require('./services/tokenDataService');
+//     const infoResult = await tokenDataService.getComprehensiveTokenInfo(tokenAddress, ctx.session.buyChain);
+//     const tokenInfo = infoResult?.data || {};
+
+//     console.log('Fetched token info:', tokenInfo);
+//     // Show token info and prompt for amount
+//     await ctx.reply(
+//       `🛒 You are about to purchase *${tokenInfo.name || 'Unknown Token'}* (${tokenInfo.symbol || 'UNKNOWN'})\n` +
+//       `Price: $${tokenInfo.priceUSD || tokenInfo.price || 'N/A'}\n` +
+//       `Chain: ${ctx.session.buyChain.toUpperCase()}\n\n` +
+//       `Please input the *amount* you want to buy:`,
+//       { parse_mode: 'Markdown' }
+//     );
+//     return;
+//   }
+
+//   // If we have both chain and token address, expect amount
+//   if (ctx.session.buyChain && ctx.session.buyTokenAddress && !ctx.session.buyAmount) {
+//     const amount = ctx.message.text.trim();
+//     ctx.session.buyAmount = amount;
+
+//     // You can now proceed to the buy logic, e.g.:
+//     await ctx.reply(
+//       `✅ Preparing to buy *${amount}* of *${ctx.session.buyTokenAddress}* on *${ctx.session.buyChain.toUpperCase()}*.\n\n` +
+//       `Type /buy to confirm or /cancel to abort.`,
+//       { parse_mode: 'Markdown' }
+//     );
+//     // Optionally, trigger the buy command here
+//     return;
+//   }
+// });
+// 2. Listen for token address input after chain selection
+this.botCore.bot.on('text', async (ctx) => {
+  ctx.session = ctx.session || {};
+  // Only proceed if we're expecting a token address for buy
+  if (ctx.session.buyChain && !ctx.session.buyTokenAddress) {
+    const tokenAddress = ctx.message.text.trim();
+    ctx.session.buyTokenAddress = tokenAddress;
+
+    // Fetch token info
+    const tokenDataService = require('./services/tokenDataService');
+    const infoResult = await tokenDataService.getComprehensiveTokenInfo(tokenAddress, ctx.session.buyChain);
+    const tokenInfo = infoResult?.data || {};
+
+    // Show token info and prompt for amount
+    await ctx.reply(
+      `🛒 You are about to purchase *${tokenInfo.name || 'Unknown Token'}* (${tokenInfo.symbol || 'UNKNOWN'})\n` +
+      `Price: $${tokenInfo.priceUSD || tokenInfo.price || 'N/A'}\n` +
+      `Chain: ${ctx.session.buyChain.toUpperCase()}\n\n` +
+      `Please input the *amount* you want to buy:`,
+      { parse_mode: 'Markdown' }
+    );
+    return;
+  }
+
+  // If we have both chain and token address, expect amount
+  if (ctx.session.buyChain && ctx.session.buyTokenAddress && !ctx.session.buyAmount) {
+    const amount = ctx.message.text.trim();
+    ctx.session.buyAmount = amount;
+
+    // Show finalize button
+    await ctx.reply(
+      `✅ Preparing to buy *${amount}* of *${ctx.session.buyTokenAddress}* on *${ctx.session.buyChain.toUpperCase()}*.\n\n` +
+      `Click "Finalize Buy" to execute the purchase or /cancel to abort.`,
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🟢 Finalize Buy', callback_data: 'finalize_buy' }]
+          ]
+        }
+      }
+    );
+    return;
+  }
+});
+
+// 3. Finalize buy handler
+this.botCore.registerCallbackHandler('finalize_buy', async (ctx) => {
+  ctx.session = ctx.session || {};
+  // Retrieve session data
+  const { buyChain, buyTokenAddress, buyAmount } = ctx.session;
+
+  if (!buyChain || !buyTokenAddress || !buyAmount) {
+    await ctx.reply('❌ Missing buy information. Please start the buy process again.');
+    return;
+  }
+
+  // ctx.message = ctx.message || {};
+  // ctx.message.text = `${buyAmount} ${buyTokenAddress}`;
+
+  ctx.session.buyViaButton = true;
+  ctx.session.buyText = `/buy ${buyAmount} ${buyTokenAddress}`;
+  // Call your buy logic here (replace with your actual buy function)
+  try {
+    // Example: await enhancedBuyCommand.executeBuy(ctx, buyChain, buyTokenAddress, buyAmount);
+    await ctx.reply(`🚀 Executing buy for *${buyAmount}* of *${buyTokenAddress}* on *${buyChain.toUpperCase()}*...`, { parse_mode: 'Markdown' });
+
+
+    // Optionally, clear session after buy
+    ctx.session.buyChain = null;
+    ctx.session.buyTokenAddress = null;
+    ctx.session.buyAmount = null;
+
+    await enhancedBuyCommand.execute(ctx)
+  } catch (error) {
+    console.error('Buy execution error:', error);
+    await ctx.reply('❌ Buy failed: ' + error.message);
+  }
+});
     // Comprehensive help command matching old bot
     this.botCore.registerCommand('help', async (ctx) => {
       return ctx.reply(`🤖 **Smile Snipper Bot Commands**

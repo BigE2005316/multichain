@@ -15,7 +15,14 @@ class BuyCommand {
   register() {
     // Main buy command
     this.botCore.registerCommand('buy', async (ctx) => {
-      const args = ctx.message.text.split(' ').slice(1);
+let args;
+  if (ctx.session && ctx.session.buyViaButton) {
+    // Use session data from button flow
+    args = ctx.session.buyText.split(' ');
+    ctx.session.buyViaButton = false; // Clear the flag after use
+  } else {
+    args = ctx.message.text.split(' ').slice(1);
+  }
       
       if (args.length === 0) {
         return ctx.reply(`💰 **Buy Command Usage:**

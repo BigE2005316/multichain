@@ -16,6 +16,19 @@ class SellCommand {
       const args = ctx.message.text.split(' ').slice(1);
       
       if (args.length === 0) {
+          return await ctx.reply(
+    '💸 **Sell Command Usage:**\n\nChoose an action:',
+    {
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: 'Sell All', callback_data: 'sell_all' }],
+          [{ text: 'Sell by Percentage', callback_data: 'sell_percentage' }],
+          [{ text: 'Sell by Amount', callback_data: 'sell_amount' }]
+        ]
+      }
+    }
+  );
         return ctx.reply(`💸 **Sell Command Usage:**
 
 **Percentage Sell:**

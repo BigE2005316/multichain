@@ -743,7 +743,11 @@ this.botCore.registerCallbackHandler('finalize_buy', async (ctx) => {
     ctx.session.buyTokenAddress = null;
     ctx.session.buyAmount = null;
 
-    await enhancedBuyCommand.execute(ctx)
+    //await enhancedBuyCommand.execute(ctx)
+        const buyCommand = new BuyCommand(this.botCore);
+
+    await buyCommand.beginProcessBuyCommand(ctx);
+
   } catch (error) {
     console.error('Buy execution error:', error);
     await ctx.reply('❌ Buy failed: ' + error.message);

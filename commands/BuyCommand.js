@@ -14,11 +14,24 @@ class BuyCommand {
 
   register() {
     // Main buy command
-    this.botCore.registerCommand('buy', async (ctx) => {
+    this.botCore.registerCommand('buy', this.beginProcessBuyCommand );
+
+    // Chain-specific buy commands
+    this.botCore.registerCommand('buyeth', (ctx) => this.handleChainSpecificBuy(ctx, 'ethereum'));
+    this.botCore.registerCommand('buybnb', (ctx) => this.handleChainSpecificBuy(ctx, 'bsc'));
+    this.botCore.registerCommand('buysol', (ctx) => this.handleChainSpecificBuy(ctx, 'solana'));
+
+    // Text handler for buy confirmation
+    this.botCore.registerTextHandler('awaiting_buy_confirmation', async (ctx) => {
+      await this.handleBuyConfirmation(ctx);
+    });
+  }
+
+  async beginProcessBuyCommand (ctx) {
 let args;
   if (ctx.session && ctx.session.buyViaButton) {
     // Use session data from button flow
-    args = ctx.session.buyText.split(' ');
+    args = ctx.session.buyText.split(' ').slice(1);
     ctx.session.buyViaButton = false; // Clear the flag after use
   } else {
     args = ctx.message.text.split(' ').slice(1);
@@ -45,18 +58,7 @@ let args;
       }
 
       await this.processBuyCommand(ctx, args);
-    });
-
-    // Chain-specific buy commands
-    this.botCore.registerCommand('buyeth', (ctx) => this.handleChainSpecificBuy(ctx, 'ethereum'));
-    this.botCore.registerCommand('buybnb', (ctx) => this.handleChainSpecificBuy(ctx, 'bsc'));
-    this.botCore.registerCommand('buysol', (ctx) => this.handleChainSpecificBuy(ctx, 'solana'));
-
-    // Text handler for buy confirmation
-    this.botCore.registerTextHandler('awaiting_buy_confirmation', async (ctx) => {
-      await this.handleBuyConfirmation(ctx);
-    });
-  }
+    }
 
   async processBuyCommand(ctx, args) {
     try {
@@ -90,7 +92,8 @@ let args;
       try {
         debugger
         // Get comprehensive token information
-        const tokenInfo = await this.getComprehensiveTokenInfo(tokenAddress, chain);
+        const tokenInfo = await tokenDataService.getComprehensiveTokenInfo(tokenAddress, chain);
+        //const tokenInfo = await this.getComprehensiveTokenInfo(tokenAddress, chain);
         debugger
         if (!tokenInfo.success) {
           await ctx.telegram.editMessageText(

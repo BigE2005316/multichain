@@ -67,6 +67,7 @@ You don't have any active trading positions yet.
         );
 
       } catch (error) {
+        console.error('Error loading positions:', error);
         await ctx.telegram.editMessageText(
           ctx.chat.id, loadingMsg.message_id, undefined,
           `❌ Error loading positions: ${error.message}`

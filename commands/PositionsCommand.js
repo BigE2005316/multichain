@@ -199,9 +199,9 @@ async getUserPositions(userId) {
       message += `• **Avg Buy:** $${pos.averageBuyPrice.toFixed(6)}\n`;
       debugger
       // message += `• **Current:** $${pos.currentPrice.currentPrice.toFixed(6)}\n`;
-      message += `• **Current:** $${pos.currentPrice.toFixed(6)}\n`;
+      message += `• **Current:** $${pos.currentPrice?.toFixed(6)}\n`;
       message += `• **Invested:** $${pos.investedAmount.toFixed(6)}\n`;
-      message += `• **Value:** $${pos.currentValue.toFixed(6)}\n`;
+      message += `• **Value:** $${pos.currentValue?.toFixed(6)}\n`;
       message += `• **P&L:** ${positionPnLEmoji} ${positionPnLColor}$${pos.pnl.toFixed(6)} (${positionPnLColor}${pos.pnlPercent.toFixed(6)}%)\n`;
       message += `• **Contract:** \`${pos.tokenAddress}\`\n`;
       

@@ -87,4 +87,86 @@ Use /customtpsl to modify these settings.`);
         return ctx.reply('❌ Invalid choice. Please use /customtpsl again.');
     }
   });
+
+
+
+    bot.command('customtpsl', async (ctx) => {
+    ctx.session = ctx.session || {};
+    ctx.session.awaitingTPSLChoice = true;
+    return ctx.reply(`🎯 **Custom TP/SL Configuration**
+
+Reply with:
+• "enable" to use custom TP/SL
+• "disable" to follow tracked wallet sells
+• "tp <profit_percent> <sell_percent>" to add take profit
+• "sl <loss_percent>" to set stop loss
+• "trailing <loss_percent>" to set trailing stop loss
+• "clear" to clear all levels`);
+  });
+
+  bot.hears(/^enable$/i, async (ctx) => {
+    const userId = ctx.from.id;
+    const userData = await userService.getUserSettings(userId);
+    userData.customTPSL.enabled = true;
+    await userService.saveUserData(userId, userData);
+    await ctx.reply('✅ Custom TP/SL enabled.');
+  });
+
+  bot.hears(/^disable$/i, async (ctx) => {
+    const userId = ctx.from.id;
+    const userData = await userService.getUserSettings(userId);
+    userData.customTPSL.enabled = false;
+    await userService.saveUserData(userId, userData);
+    await ctx.reply('❌ Custom TP/SL disabled.');
+  });
+
+  bot.hears(/^tp (\d+(\.\d+)?) (\d+(\.\d+)?)$/i, async (ctx) => {
+    const userId = ctx.from.id;
+    const [ , profitPercent, , sellPercent ] = ctx.match;
+    const userData = await userService.getUserSettings(userId);
+    userData.customTPSL.takeProfits.push({
+      percent: parseFloat(profitPercent),
+      sellPercent: parseFloat(sellPercent),
+      triggered: false
+    });
+    userData.customTPSL.takeProfits.sort((a, b) => a.percent - b.percent);
+    await userService.saveUserData(userId, userData);
+    await ctx.reply(`✅ Take profit added: ${profitPercent}% profit → sell ${sellPercent}%`);
+  });
+
+  bot.hears(/^sl (-?\d+(\.\d+)?)$/i, async (ctx) => {
+    const userId = ctx.from.id;
+    const [ , lossPercent ] = ctx.match;
+    const userData = await userService.getUserSettings(userId);
+    userData.customTPSL.stopLoss = {
+      percent: parseFloat(lossPercent),
+      trailing: false,
+      triggered: false
+    };
+    await userService.saveUserData(userId, userData);
+    await ctx.reply(`✅ Stop loss set at ${lossPercent}%`);
+  });
+
+  bot.hears(/^trailing (-?\d+(\.\d+)?)$/i, async (ctx) => {
+    const userId = ctx.from.id;
+    const [ , trailingPercent ] = ctx.match;
+    const userData = await userService.getUserSettings(userId);
+    userData.customTPSL.stopLoss = {
+      percent: parseFloat(trailingPercent),
+      trailing: true,
+      triggered: false,
+      highWaterMark: 0
+    };
+    await userService.saveUserData(userId, userData);
+    await ctx.reply(`✅ Trailing stop loss set at ${trailingPercent}%`);
+  });
+
+  bot.hears(/^clear$/i, async (ctx) => {
+    const userId = ctx.from.id;
+    const userData = await userService.getUserSettings(userId);
+    userData.customTPSL.takeProfits = [];
+    userData.customTPSL.stopLoss = null;
+    await userService.saveUserData(userId, userData);
+    await ctx.reply('✅ All TP/SL levels cleared.');
+  });
 }; 

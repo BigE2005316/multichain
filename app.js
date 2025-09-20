@@ -645,6 +645,7 @@ this.botCore.registerCallbackHandler('create_wallet', async (ctx) => {
       { parse_mode: 'Markdown' }
     );
   } catch (error) {
+    console.error('Create wallet error:', error);
     await ctx.reply('❌ Failed to create wallet. Please try again.');
   }
 });

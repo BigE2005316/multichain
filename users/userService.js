@@ -139,6 +139,11 @@ function createDefaultUser() {
       stopLossPercent: 0,     // Trailing stop loss percentage
       sellMode: 'proportional' // 'proportional' or 'manual'
     },
+    customTPSL: {
+      enabled: false,
+      takeProfits: [], // [{ percent: 50, sellPercent: 25, triggered: false }]
+      stopLoss: null   // { percent: -20, trailing: false, triggered: false }
+    },
     positions: {},            // Track positions bought via copy trading
     stats: {
       totalTrades: 0,

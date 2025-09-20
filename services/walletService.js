@@ -206,6 +206,7 @@ class WalletService {
         try {
           privateKey = this.decrypt(userData.custodialWallets[chain].privateKey);
         } catch (e) {
+          console.log('Decryption failed for existing wallet:', e);
           privateKey = 'decryption_failed';
         }
 

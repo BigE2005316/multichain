@@ -639,7 +639,9 @@ this.botCore.registerCallbackHandler('create_wallet', async (ctx) => {
   const userSettings = await userService.getUserSettings(ctx.from.id);
   const chain = userSettings?.chain || 'solana';
   try {
-    const wallet = await walletService.createNewWallet(ctx.from.id, chain);
+    //const wallet = await walletService.createNewWallet(ctx.from.id, chain);
+    //createNewWallet
+    const wallet = await walletService.getOrCreateWallet(ctx.from.id, chain);
     await ctx.reply(
       `🆕 **New ${chain.toUpperCase()} Wallet Created!**\n\`${wallet.address}\``,
       { parse_mode: 'Markdown' }

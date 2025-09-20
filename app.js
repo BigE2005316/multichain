@@ -577,6 +577,205 @@ Type /help to see all commands and start your trading journey!`,
          });
     });
 
+    // Wallet menu handler
+this.botCore.registerCallbackHandler('wallet', async (ctx) => {
+  await ctx.reply(
+    `💼 **Wallet Menu**\n\nChoose an action:`,
+    {
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: '📥 Get Wallet', callback_data: 'get_wallet' },
+            { text: '🆕 Create Wallet', callback_data: 'create_wallet' },
+            { text: '🔐 Export Wallet', callback_data: 'export_wallet' }
+          ],
+          [
+            { text: '💰 Check Balance', callback_data: 'wallet_balance' },
+            { text: '🔑 Import Wallet', callback_data: 'import_wallet' },
+            { text: '⬅️ Back', callback_data: 'main_menu' }
+          ]
+        ]
+      }
+    }
+  );
+});
+
+// Get Wallet handler
+this.botCore.registerCallbackHandler('get_wallet', async (ctx) => {
+  console.log('/wallet command invoked');
+  const userSettings = await userService.getUserSettings(ctx.from.id);
+  const chain = userSettings?.chain || 'solana';
+
+  try {
+    const wallet = await walletService.getOrCreateWallet(ctx.from.id, chain);
+
+    let message = `💼 **Your ${chain.toUpperCase()} Wallet**\n\n`;
+    message += `📍 **Address:**\n\`${wallet.address}\`\n\n`;
+    message += `📍 **Private key:**\n\`${wallet.privateKey}\`\n\n`;
+    // Get balance
+    try {
+      const balanceInfo = await walletService.getWalletBalance(wallet.address, chain);
+      message += `💰 **Balance:** ${balanceInfo.balance} ${this.getChainSymbol(chain)}\n\n`;
+    } catch (balanceError) {
+      message += `💰 **Balance:** Unable to fetch\n\n`;
+    }
+
+    message += `🔐 **Security:** AES-256 encrypted\n`;
+    message += `⚡ **Status:** Ready for trading\n\n`;
+    message += `**Next Steps:**\n`;
+    message += `• Send funds to address above\n`;
+    message += `• Use /balance to check balance\n`;
+    message += `• Use /buy to start trading`;
+
+    await ctx.reply(message, { parse_mode: 'Markdown' });
+  } catch (error) {
+    await ctx.reply('❌ Failed to create/access wallet. Please try again.');
+  }
+});
+
+// Create Wallet handler
+this.botCore.registerCallbackHandler('create_wallet', async (ctx) => {
+  const userSettings = await userService.getUserSettings(ctx.from.id);
+  const chain = userSettings?.chain || 'solana';
+  try {
+    const wallet = await walletService.createNewWallet(ctx.from.id, chain);
+    await ctx.reply(
+      `🆕 **New ${chain.toUpperCase()} Wallet Created!**\n\`${wallet.address}\``,
+      { parse_mode: 'Markdown' }
+    );
+  } catch (error) {
+    await ctx.reply('❌ Failed to create wallet. Please try again.');
+  }
+});
+
+// Import Wallet handler
+this.botCore.registerCallbackHandler('import_wallet', async (ctx) => {
+  ctx.session = ctx.session || {};
+  ctx.session.awaitingImportPrivateKey = true;
+  await ctx.reply(
+    `✍️ Please paste your **private key** below.\n\n` +
+    `⚠️ *Never share your private key with anyone else!*`,
+    { parse_mode: 'Markdown' }
+  );
+  await ctx.answerCbQuery();
+});
+
+this.botCore.bot.on('text', async (ctx) => {
+  ctx.session = ctx.session || {};
+
+  // ...existing buy flow logic...
+
+  // Import wallet flow
+  if (ctx.session.awaitingImportPrivateKey) {
+    const privateKey = ctx.message.text.trim();
+
+    if (!privateKey || privateKey.length < 32) {
+      await ctx.reply('❌ Invalid private key. Please try again or /cancel.');
+      return;
+    }
+
+    try {
+      const userId = ctx.from.id;
+      // You must implement this in your walletService!
+      const result = await walletService.importWallet(userId, privateKey);
+
+      if (result && result.address) {
+        await ctx.reply(
+          `✅ **Wallet Imported Successfully!**\n\n` +
+          `📍 **Address:** \`${result.address}\`\n` +
+          `🔒 Your wallet is now available for trading.`,
+          { parse_mode: 'Markdown' }
+        );
+      } else {
+        await ctx.reply('❌ Failed to import wallet. Please check your private key and try again.');
+      }
+    } catch (error) {
+      await ctx.reply('❌ Error importing wallet: ' + error.message);
+    }
+
+    ctx.session.awaitingImportPrivateKey = false;
+    return;
+  }
+
+  // ...rest of your text handler logic...
+});
+
+// Export Wallet handler
+this.botCore.registerCallbackHandler('export_wallet', async (ctx) => {
+  const userSettings = await userService.getUserSettings(ctx.from.id);
+  const chain = userSettings?.chain || 'solana';
+  try {
+    const wallet = await walletService.getWalletInfo(ctx.from.id, chain);
+    if (!wallet) {
+      return ctx.reply('❌ No wallet found. Create one first.');
+    }
+    // For security, you may want to send this only in a secure way!
+    await ctx.reply(
+      `🔐 **Export Wallet**\n\n*For security, never share your private key!*\n\n\`${wallet.privateKey || 'Not available'}\``,
+      { parse_mode: 'Markdown' }
+    );
+  } catch (error) {
+    await ctx.reply('❌ Failed to export wallet. Please try again.');
+  }
+});
+
+// Wallet Balance handler
+this.botCore.registerCallbackHandler('wallet_balance', async (ctx) => {
+  const userSettings = await userService.getUserSettings(ctx.from.id);
+  const chain = userSettings?.chain || 'solana';
+  try {
+    const wallet = await walletService.getWalletInfo(ctx.from.id, chain);
+    if (!wallet) {
+      return ctx.reply('❌ No wallet found. Create one first.');
+    }
+    const balanceInfo = await walletService.getWalletBalance(wallet.address, chain);
+    await ctx.reply(
+      `💰 **${chain.toUpperCase()} Balance:**\n${balanceInfo.balance} ${this.getChainSymbol(chain)}`,
+      { parse_mode: 'Markdown' }
+    );
+  } catch (error) {
+    await ctx.reply('❌ Failed to get balance. Please try again.');
+  }
+});
+
+// Back to Main Menu handler
+this.botCore.registerCallbackHandler('main_menu', async (ctx) => {
+  await ctx.reply('🏠 Back to main menu. Use /start to see options.');
+});
+    // Add this in registerBasicCommands, after other callback handlers
+// this.botCore.registerCallbackHandler('wallet', async (ctx) => {
+//   console.log('/wallet command invoked');
+//   const userSettings = await userService.getUserSettings(ctx.from.id);
+//   const chain = userSettings?.chain || 'solana';
+
+//   try {
+//     const wallet = await walletService.getOrCreateWallet(ctx.from.id, chain);
+
+//     let message = `💼 **Your ${chain.toUpperCase()} Wallet**\n\n`;
+//     message += `📍 **Address:**\n\`${wallet.address}\`\n\n`;
+
+//     // Get balance
+//     try {
+//       const balanceInfo = await walletService.getWalletBalance(wallet.address, chain);
+//       message += `💰 **Balance:** ${balanceInfo.balance} ${this.getChainSymbol(chain)}\n\n`;
+//     } catch (balanceError) {
+//       message += `💰 **Balance:** Unable to fetch\n\n`;
+//     }
+
+//     message += `🔐 **Security:** AES-256 encrypted\n`;
+//     message += `⚡ **Status:** Ready for trading\n\n`;
+//     message += `**Next Steps:**\n`;
+//     message += `• Send funds to address above\n`;
+//     message += `• Use /balance to check balance\n`;
+//     message += `• Use /buy to start trading`;
+
+//     await ctx.reply(message, { parse_mode: 'Markdown' });
+//   } catch (error) {
+//     await ctx.reply('❌ Failed to create/access wallet. Please try again.');
+//   }
+// });
+
 // Clear session before starting a new buy process
 this.botCore.registerCallbackHandler('buy', async (ctx) => {
   ctx.session = ctx.session || {};
@@ -910,6 +1109,7 @@ Use /wallet to create a ${chain.toUpperCase()} wallet if you don't have one.`);
   registerWalletCommands() {
     // Main wallet command
     this.botCore.registerCommand('wallet', async (ctx) => {
+      console.log('/wallet command invoked');
       const userSettings = await userService.getUserSettings(ctx.from.id);
       const chain = userSettings?.chain || 'solana';
       

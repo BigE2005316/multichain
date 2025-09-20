@@ -218,7 +218,7 @@ async getUserPositions(userId) {
     
     message += `🔄 **Auto-refreshed:** ${new Date().toLocaleString()}\n`;
     message += `💡 **Tip:** Use /sell to take profits or cut losses`;
-
+    console.log('Positions message created:', message);
     return message;
   }
 

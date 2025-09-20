@@ -123,6 +123,7 @@ class BotCore {
   // Register command handler with proper pattern
   registerCommand(command, handler, options = {}) {
     if (typeof handler !== 'function') {
+      console.error(`Handler for command ${command} is not a function`);
       throw new Error(`Handler for command ${command} must be a function`);
     }
 
@@ -141,6 +142,7 @@ class BotCore {
         
         await handler(ctx);
       } catch (error) {
+        console.error(`Error in command ${command}:`, error);
         throw error; // Let global error handler catch it
       }
     });

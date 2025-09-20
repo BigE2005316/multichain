@@ -7,6 +7,7 @@ const walletHandler = new Composer();
 // Enhanced wallet creation command with auto-initialization
 walletHandler.command('wallet', async (ctx) => {
   try {
+    console.log('/wallet command processing for user:', ctx.from.id);
     const userId = ctx.from.id;
     await userService.updateLastActive(userId);
     

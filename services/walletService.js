@@ -784,29 +784,32 @@ async importWallet(userId, privateKey, chain = 'solana') {
     if (chain === 'solana') {
       const { Keypair } = require('@solana/web3.js');
       const bs58 = require('bs58');
-      debugger;
+      let secretKey;
       if (privateKey.startsWith('[')) {
+        // Array format
         const arr = JSON.parse(privateKey);
-        keypair = Keypair.fromSecretKey(Uint8Array.from(arr));
+        secretKey = Uint8Array.from(arr);
+      } else if (/^[0-9a-fA-F]{128}$/.test(privateKey)) {
+        // Hex format
+        secretKey = Uint8Array.from(Buffer.from(privateKey, 'hex'));
       } else {
-        keypair = Keypair.fromSecretKey(bs58.decode(privateKey));
+        // Assume base58
+        // secretKey = bs58.decode(privateKey);
+                secretKey = privateKey;
       }
-      debugger;
+      keypair = Keypair.fromSecretKey(secretKey);
       address = keypair.publicKey.toBase58();
     } else {
       // EVM wallet import logic here
       // ...
     }
 
-    debugger;
     // Fetch wallet stats
     const balanceInfo = await this.getWalletBalance(address, chain);
 
-    debugger;
     // Load user data
     const userData = await userService.getUserSettings(userId);
     if (!userData.custodialWallets) userData.custodialWallets = {};
-    debugger;
     userData.custodialWallets[chain] = {
       address,
       privateKey, // Store encrypted if needed
@@ -818,9 +821,7 @@ async importWallet(userId, privateKey, chain = 'solana') {
       lastUpdated: new Date()
     };
 
-    debugger;
     await userService.saveUserData(userId, userData);
-    debugger;
     return {
       address,
       balance: balanceInfo.balance,
@@ -829,11 +830,11 @@ async importWallet(userId, privateKey, chain = 'solana') {
       txCount: balanceInfo.txCount || 0
     };
   } catch (e) {
-    debugger;
     console.error('Import wallet error:', e);
     throw new Error('Invalid private key format or failed to import wallet');
   }
 }
+
 // ...existing code...
   // Generate fresh wallet for users with decryption issues
   async regenerateWallet(userId, chain) {

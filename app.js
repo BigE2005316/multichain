@@ -653,55 +653,99 @@ this.botCore.registerCallbackHandler('create_wallet', async (ctx) => {
 });
 
 // Import Wallet handler
+// this.botCore.registerCallbackHandler('import_wallet', async (ctx) => {
+//   ctx.session = ctx.session || {};
+//   ctx.session.awaitingImportPrivateKey = true;
+//   await ctx.reply(
+//     `✍️ Please paste your **private key** below.\n\n` +
+//     `⚠️ *Never share your private key with anyone else!*`,
+//     { parse_mode: 'Markdown' }
+//   );
+//   await ctx.answerCbQuery();
+// });
+
+// this.botCore.bot.on('text', async (ctx) => {
+//   ctx.session = ctx.session || {};
+
+//   // ...existing buy flow logic...
+//   console.log('Text message received:', ctx.message.text);
+//   // Import wallet flow
+//   if (ctx.session.awaitingImportPrivateKey) {
+//     const privateKey = ctx.message.text.trim();
+
+//     if (!privateKey || privateKey.length < 32) {
+//       await ctx.reply('❌ Invalid private key. Please try again or /cancel.');
+//       return;
+//     }
+
+//     try {
+//       const userId = ctx.from.id;
+//       // You must implement this in your walletService!
+//       const result = await walletService.importWallet(userId, privateKey);
+
+//       if (result && result.address) {
+//         await ctx.reply(
+//           `✅ **Wallet Imported Successfully!**\n\n` +
+//           `📍 **Address:** \`${result.address}\`\n` +
+//           `🔒 Your wallet is now available for trading.`,
+//           { parse_mode: 'Markdown' }
+//         );
+//       } else {
+//         await ctx.reply('❌ Failed to import wallet. Please check your private key and try again.');
+//       }
+//     } catch (error) {
+//       await ctx.reply('❌ Error importing wallet: ' + error.message);
+//     }
+
+//     ctx.session.awaitingImportPrivateKey = false;
+//     return;
+//   }
+
+//   // ...rest of your text handler logic...
+// });
+
+// Register a dedicated text handler for import wallet flow
+this.botCore.registerTextHandler('awaitingImportPrivateKey', async (ctx) => {
+  ctx.session = ctx.session || {};
+  const privateKey = ctx.message.text.trim();
+
+  if (!privateKey || privateKey.length < 32) {
+    await ctx.reply('❌ Invalid private key. Please try again or /cancel.');
+    return;
+  }
+
+  try {
+    const userId = ctx.from.id;
+    const result = await walletService.importWallet(userId, privateKey);
+
+    if (result && result.address) {
+      await ctx.reply(
+        `✅ **Wallet Imported Successfully!**\n\n` +
+        `📍 **Address:** \`${result.address}\`\n` +
+        `🔒 Your wallet is now available for trading.`,
+        { parse_mode: 'Markdown' }
+      );
+    } else {
+      await ctx.reply('❌ Failed to import wallet. Please check your private key and try again.');
+    }
+  } catch (error) {
+    await ctx.reply('❌ Error importing wallet: ' + error.message);
+  }
+
+  ctx.session.awaitingImportPrivateKey = false;
+});
+
+// In your import_wallet callback handler, set the session flag and handler:
 this.botCore.registerCallbackHandler('import_wallet', async (ctx) => {
   ctx.session = ctx.session || {};
   ctx.session.awaitingImportPrivateKey = true;
+  ctx.session.activeTextHandler = 'awaitingImportPrivateKey';
   await ctx.reply(
     `✍️ Please paste your **private key** below.\n\n` +
     `⚠️ *Never share your private key with anyone else!*`,
     { parse_mode: 'Markdown' }
   );
   await ctx.answerCbQuery();
-});
-
-this.botCore.bot.on('text', async (ctx) => {
-  ctx.session = ctx.session || {};
-
-  // ...existing buy flow logic...
-
-  // Import wallet flow
-  if (ctx.session.awaitingImportPrivateKey) {
-    const privateKey = ctx.message.text.trim();
-
-    if (!privateKey || privateKey.length < 32) {
-      await ctx.reply('❌ Invalid private key. Please try again or /cancel.');
-      return;
-    }
-
-    try {
-      const userId = ctx.from.id;
-      // You must implement this in your walletService!
-      const result = await walletService.importWallet(userId, privateKey);
-
-      if (result && result.address) {
-        await ctx.reply(
-          `✅ **Wallet Imported Successfully!**\n\n` +
-          `📍 **Address:** \`${result.address}\`\n` +
-          `🔒 Your wallet is now available for trading.`,
-          { parse_mode: 'Markdown' }
-        );
-      } else {
-        await ctx.reply('❌ Failed to import wallet. Please check your private key and try again.');
-      }
-    } catch (error) {
-      await ctx.reply('❌ Error importing wallet: ' + error.message);
-    }
-
-    ctx.session.awaitingImportPrivateKey = false;
-    return;
-  }
-
-  // ...rest of your text handler logic...
 });
 
 // Export Wallet handler

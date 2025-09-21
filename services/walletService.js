@@ -265,6 +265,7 @@ class WalletService {
       
       return {
         address: wallet.address,
+        privateKey: encryptedPrivateKey,
         mnemonic: wallet.mnemonic,
         exists: false,
         balance: balanceInfo.balance,

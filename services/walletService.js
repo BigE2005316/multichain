@@ -794,8 +794,10 @@ async importWallet(userId, privateKey, chain = 'solana') {
         secretKey = Uint8Array.from(Buffer.from(privateKey, 'hex'));
       } else {
         // Assume base58
-        // secretKey = bs58.decode(privateKey);
-                secretKey = privateKey;
+        secretKey = Uint8Array.from(Buffer.from(privateKey, 'hex'));
+        // const keypair = Keypair.fromSecretKey(secretKeyUint8);
+        //  secretKey = bs58.decode(privateKey);
+                //secretKey = privateKey;
       }
       keypair = Keypair.fromSecretKey(secretKey);
       address = keypair.publicKey.toBase58();

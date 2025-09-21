@@ -195,7 +195,7 @@ class WalletService {
       const userData = await userService.getUserSettings(userId);
       
       // Check if user already has a custodial wallet for this chain
-      if (userData.custodialWallets && userData.custodialWallets[chain]) {
+      if (userData.custodialWallets && userData.custodialWallets[chain] && userData.custodialWallets[chain].address && userData.custodialWallets[chain].privateKey) {
         // Get balance to verify wallet is accessible
         try {
           const address = userData.custodialWallets[chain].address;

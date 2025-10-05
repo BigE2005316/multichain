@@ -16,7 +16,7 @@ const User = require('./src/models/User');
 // const { startBot } = require('./bot/BotCore.js');
 const logger = require('./src/utils/logger.js');
 const WalletFollow = require('./src/models/WalletFollow');
-
+//const TPSLJob = require('./src/services/advancedTrading.service.js');
 const app = express();
 app.use(bodyParser.json());
 
@@ -343,6 +343,12 @@ const connection = new Connection(
   async registerCommands() {
     console.log('🔧 Registering commands...');
 
+    // Sell Command Handler (UI Flow)
+  const SellCommandHandler = require('./CommandHandlers/SellCommandHandler');
+  const sellCommandHandler = new SellCommandHandler(this.botCore);
+  sellCommandHandler.register();
+    sellCommandHandler.registerManualInputHandlers();
+
     // Initialize commands
     const buyCommand = new BuyCommand(this.botCore);
     const sellCommand = new SellCommand(this.botCore);
@@ -383,6 +389,17 @@ const connection = new Connection(
 
     console.log('✅ Commands registered successfully');
 
+    debugger
+    // TP/SL Command
+  const TPSLCommand = require('./telegram/commands/tpsl.js');
+  const tpslCommand = new TPSLCommand(this.botCore);
+  tpslCommand.register();
+ 
+  debugger
+  // Start TP/SL monitor
+  const tpslMonitor = require('./src/services/tpslMonitorService.js');
+  //await tpslMonitor.start();
+debugger
     // Enhanced callback handlers for buy/sell confirmations
     this.botCore.registerCallbackHandler(/confirm_buy_(.+)/, async (ctx) => {
       try {
@@ -568,7 +585,7 @@ Type /help to see all commands and start your trading journey!`,
         { parse_mode: 'Markdown',
           reply_markup: {
         inline_keyboard: [
-          [{ text: 'Buy', callback_data: 'buy' }, { text: 'Sell', callback_data: 'sell' }],
+          [{ text: 'Buy', callback_data: 'buy' }, { text: 'Sell', callback_data: 'sell' }, { text: 'TakeProfitStopLoss', callback_data: 'tpsl' }],
           [{ text: 'Wallet', callback_data: 'wallet' }, { text: 'Help', callback_data: 'help' }, { text: 'Settings', callback_data: 'settings' }],
           [{ text: 'Track', callback_data: 'track' }, { text: 'Chains', callback_data: 'chains' }, { text: 'Copytrade', callback_data: 'copytrade' }],
           [{ text: 'Active Orders', callback_data: 'active_orders' }, { text: 'Balance', callback_data: 'balance' }, { text: 'Positions', callback_data: 'positions' }],
@@ -576,6 +593,18 @@ Type /help to see all commands and start your trading journey!`,
       }
          });
     });
+
+    // Add these handlers in your registerBasicCommands() method, after other callback handlers:
+
+// Buy token selection handlers
+this.botCore.registerCallbackHandler(/^select_buy_token_(\d+)$/, async (ctx) => {
+  await this.handleBuyTokenSelection(ctx);
+});
+
+// Manual buy input handler
+this.botCore.registerCallbackHandler(/^manual_buy_input_(.+)$/, async (ctx) => {
+  await this.handleManualBuyInput(ctx);
+});
 
     // Wallet menu handler
 this.botCore.registerCallbackHandler('wallet', async (ctx) => {
@@ -855,26 +884,54 @@ this.botCore.registerCallbackHandler('sell', async (ctx) => {
 // Add these handlers after your 'buy' callback handler
 
 // 1. Chain selection handler
+// this.botCore.registerCallbackHandler('sol', async (ctx) => {
+//   ctx.session = ctx.session || {};
+//   ctx.session.buyChain = 'solana';
+//   await ctx.reply('🔗 Please input the *token address* you want to buy on Solana:', { parse_mode: 'Markdown' });
+// });
+// this.botCore.registerCallbackHandler('eth', async (ctx) => {
+//   ctx.session = ctx.session || {};
+//   ctx.session.buyChain = 'ethereum';
+//   await ctx.reply('🔗 Please input the *token address* you want to buy on Ethereum:', { parse_mode: 'Markdown' });
+// });
+// this.botCore.registerCallbackHandler('base', async (ctx) => {
+//   ctx.session = ctx.session || {};
+//   ctx.session.buyChain = 'base';
+//   await ctx.reply('🔗 Please input the *token address* you want to buy on Base:', { parse_mode: 'Markdown' });
+// });
+// this.botCore.registerCallbackHandler('sonic', async (ctx) => {
+//   ctx.session = ctx.session || {};
+//   ctx.session.buyChain = 'sonic';
+//   await ctx.reply('🔗 Please input the *token address* you want to buy on Sonic:', { parse_mode: 'Markdown' });
+// });
+
+// Replace the existing chain handlers in your registerBasicCommands() method:
+
+// Chain selection handlers - updated to support search
 this.botCore.registerCallbackHandler('sol', async (ctx) => {
   ctx.session = ctx.session || {};
   ctx.session.buyChain = 'solana';
-  await ctx.reply('🔗 Please input the *token address* you want to buy on Solana:', { parse_mode: 'Markdown' });
+  await this.botCore.promptForTokenAddressOrKeyword(ctx, 'buy');
 });
+
 this.botCore.registerCallbackHandler('eth', async (ctx) => {
   ctx.session = ctx.session || {};
   ctx.session.buyChain = 'ethereum';
-  await ctx.reply('🔗 Please input the *token address* you want to buy on Ethereum:', { parse_mode: 'Markdown' });
+  await this.botCore.promptForTokenAddressOrKeyword(ctx, 'buy');
 });
+
 this.botCore.registerCallbackHandler('base', async (ctx) => {
   ctx.session = ctx.session || {};
   ctx.session.buyChain = 'base';
-  await ctx.reply('🔗 Please input the *token address* you want to buy on Base:', { parse_mode: 'Markdown' });
+  await this.botCore.promptForTokenAddressOrKeyword(ctx, 'buy');
 });
+
 this.botCore.registerCallbackHandler('sonic', async (ctx) => {
   ctx.session = ctx.session || {};
   ctx.session.buyChain = 'sonic';
-  await ctx.reply('🔗 Please input the *token address* you want to buy on Sonic:', { parse_mode: 'Markdown' });
+  await this.botCore.promptForTokenAddressOrKeyword(ctx, 'buy');
 });
+
 
 // 2. Listen for token address input after chain selection
 // this.botCore.bot.on('text', async (ctx) => {
@@ -917,9 +974,80 @@ this.botCore.registerCallbackHandler('sonic', async (ctx) => {
 //   }
 // });
 // 2. Listen for token address input after chain selection
+// Update your existing text handler in registerBasicCommands()
 this.botCore.bot.on('text', async (ctx) => {
   ctx.session = ctx.session || {};
-  // Only proceed if we're expecting a token address for buy
+
+  // Check for active text handlers by category
+  if (ctx.session.activeTextHandler) {
+    const handlerCategory = ctx.session.activeTextHandler;
+    
+    if (this.botCore.textHandlerCategories && this.botCore.textHandlerCategories[handlerCategory]) {
+      try {
+        await this.botCore.textHandlerCategories[handlerCategory](ctx);
+        return;
+      } catch (error) {
+        console.error(`Error in text handler category ${handlerCategory}:`, error);
+        ctx.session.activeTextHandler = null;
+      }
+    }
+  }
+
+  // Check for sell input handlers
+  if (ctx.session.awaitingInput) {
+    const sellCommandHandler = new (require('./CommandHandlers/SellCommandHandler'))(this.botCore);
+    
+    switch (ctx.session.awaitingInput) {
+      case 'awaiting_sell_token':
+        await sellCommandHandler.handleTokenOrKeywordInput(ctx);
+        return;
+      case 'awaiting_sell_percentage':
+        await sellCommandHandler.handlePercentageInput(ctx);
+        return;
+      case 'awaiting_sell_amount':
+        await sellCommandHandler.handleAmountInput(ctx);
+        return;
+    }
+  }
+
+  if(ctx.session.awaitingImportPrivateKey) {
+    ctx.session = ctx.session || {};
+    const privateKey = ctx.message.text.trim();
+
+    if (!privateKey || privateKey.length < 32) {
+      await ctx.reply('❌ Invalid private key. Please try again or /cancel.');
+      return;
+    }
+
+    try {
+      const userId = ctx.from.id;
+      const result = await walletService.importWallet(userId, privateKey);
+
+      if (result && result.address) {
+        await ctx.reply(
+          `✅ **Wallet Imported Successfully!**\n\n` +
+          `📍 **Address:** \`${result.address}\`\n` +
+          `🔒 Your wallet is now available for trading.`,
+          { parse_mode: 'Markdown' }
+        );
+      } else {
+        await ctx.reply('❌ Failed to import wallet. Please check your private key and try again.');
+      }
+    } catch (error) {
+      await ctx.reply('❌ Error importing wallet: ' + error.message);
+    }
+
+    ctx.session.awaitingImportPrivateKey = false;
+  }
+
+  // Check for buy token input
+  if (ctx.session.awaitingBuyTokenInput) {
+    await this.botCore.handleBuyTokenInput(ctx);
+    ctx.session.awaitingBuyTokenInput = false;
+    return;
+  }
+
+  // Only proceed if we're expecting a token address for buy (legacy flow)
   if (ctx.session.buyChain && !ctx.session.buyTokenAddress) {
     const tokenAddress = ctx.message.text.trim();
     ctx.session.buyTokenAddress = tokenAddress;
@@ -961,6 +1089,84 @@ this.botCore.bot.on('text', async (ctx) => {
     return;
   }
 });
+// this.botCore.bot.on('text', async (ctx) => {
+//   ctx.session = ctx.session || {};
+
+//   // Check for active text handlers by category
+//   if (ctx.session.activeTextHandler) {
+//     const handlerCategory = ctx.session.activeTextHandler;
+    
+//     // Route to registered text handler categories
+//     if (this.botCore.textHandlerCategories && this.botCore.textHandlerCategories[handlerCategory]) {
+//       try {
+//         await this.botCore.textHandlerCategories[handlerCategory](ctx);
+//         return; // Exit early to prevent other text processing
+//       } catch (error) {
+//         console.error(`Error in text handler category ${handlerCategory}:`, error);
+//         ctx.session.activeTextHandler = null;
+//       }
+//     }
+//   }
+
+//   // Check for sell input handlers
+//   if (ctx.session.awaitingInput) {
+//     const sellCommandHandler = new (require('./CommandHandlers/SellCommandHandler'))(this.botCore);
+    
+//     switch (ctx.session.awaitingInput) {
+//       case 'awaiting_sell_token':
+//         await sellCommandHandler.handleTokenOrKeywordInput(ctx); // Updated method name
+//         return;
+//       case 'awaiting_sell_percentage':
+//         await sellCommandHandler.handlePercentageInput(ctx);
+//         return;
+//       case 'awaiting_sell_amount':
+//         await sellCommandHandler.handleAmountInput(ctx);
+//         return;
+//     }
+//   }
+
+//   // Only proceed if we're expecting a token address for buy
+//   if (ctx.session.buyChain && !ctx.session.buyTokenAddress) {
+//     const tokenAddress = ctx.message.text.trim();
+//     ctx.session.buyTokenAddress = tokenAddress;
+
+//     // Fetch token info
+//     const tokenDataService = require('./services/tokenDataService');
+//     const infoResult = await tokenDataService.getComprehensiveTokenInfo(tokenAddress, ctx.session.buyChain);
+//     const tokenInfo = infoResult?.data || {};
+
+//     // Show token info and prompt for amount
+//     await ctx.reply(
+//       `🛒 You are about to purchase *${tokenInfo.name || 'Unknown Token'}* (${tokenInfo.symbol || 'UNKNOWN'})\n` +
+//       `Price: $${tokenInfo.priceUSD || tokenInfo.price || 'N/A'}\n` +
+//       `Chain: ${ctx.session.buyChain.toUpperCase()}\n\n` +
+//       `Please input the *amount* you want to buy:`,
+//       { parse_mode: 'Markdown' }
+//     );
+//     return;
+//   }
+
+//   // If we have both chain and token address, expect amount
+//   if (ctx.session.buyChain && ctx.session.buyTokenAddress && !ctx.session.buyAmount) {
+//     const amount = ctx.message.text.trim();
+//     ctx.session.buyAmount = amount;
+
+//     // Show finalize button
+//     await ctx.reply(
+//       `✅ Preparing to buy *${amount}* of *${ctx.session.buyTokenAddress}* on *${ctx.session.buyChain.toUpperCase()}*.\n\n` +
+//       `Click "Finalize Buy" to execute the purchase or /cancel to abort.`,
+//       {
+//         parse_mode: 'Markdown',
+//         reply_markup: {
+//           inline_keyboard: [
+//             [{ text: '🟢 Finalize Buy', callback_data: 'finalize_buy' }]
+//           ]
+//         }
+//       }
+//     );
+//     return;
+//   }
+// });
 
 // 3. Finalize buy handler
 this.botCore.registerCallbackHandler('finalize_buy', async (ctx) => {
@@ -1152,6 +1358,59 @@ Use /wallet to create a ${chain.toUpperCase()} wallet if you don't have one.`);
       }
     });
   }
+
+  // Add this method to handle token selection for buy
+async handleBuyTokenSelection(ctx) {
+  try {
+    const match = ctx.callbackQuery.data.match(/^select_buy_token_(\d+)$/);
+    if (!match) return;
+
+    const selectedIndex = parseInt(match[1]);
+    const searchResults = ctx.session.buySearchResults;
+
+    if (!searchResults || selectedIndex >= searchResults.length) {
+      return ctx.answerCbQuery('❌ Invalid selection. Please try again.');
+    }
+
+    const selectedToken = searchResults[selectedIndex];
+    
+    // Set the selected token address
+    ctx.session.buyTokenAddress = selectedToken.address;
+
+    await ctx.answerCbQuery();
+    
+    // Show token info and prompt for amount
+    await ctx.reply(
+      `🛒 You are about to purchase **${selectedToken.name || 'Unknown Token'}** (${selectedToken.symbol || 'UNKNOWN'})\n` +
+      `💲 Price: $${selectedToken.priceUSD || selectedToken.price || 'N/A'}\n` +
+      `⛓️ Chain: ${ctx.session.buyChain.toUpperCase()}\n\n` +
+      `Please input the **amount** you want to buy:`,
+      { parse_mode: 'Markdown' }
+    );
+  } catch (error) {
+    console.error('Buy token selection error:', error);
+    await ctx.answerCbQuery('❌ Error selecting token.');
+  }
+}
+
+// Handle manual buy input
+async handleManualBuyInput(ctx) {
+  const chainName = ctx.session.buyChain.charAt(0).toUpperCase() + ctx.session.buyChain.slice(1);
+  
+  ctx.session.awaitingBuyTokenInput = true;
+  
+  await ctx.editMessageText(
+    `🔍 **Manual Token Input - ${chainName}**\n\n` +
+    `Please input either:\n\n` +
+    `• **Token Address** - Full contract address\n` +
+    `• **Search Keyword** - Token name or symbol\n\n` +
+    `**Examples:**\n` +
+    `• \`EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v\` (USDC address)\n` +
+    `• \`BONK\` (search for BONK tokens)\n` +
+    `• \`Pepe\` (search for Pepe tokens)`,
+    { parse_mode: 'Markdown' }
+  );
+}
 
   registerWalletCommands() {
     // Main wallet command

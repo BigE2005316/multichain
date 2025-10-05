@@ -10,53 +10,87 @@ class SellCommand {
     this.serviceManager = getServiceManager();
   }
 
-  register() {
-    // Main sell command
-    this.botCore.registerCommand('sell', async (ctx) => {
-      const args = ctx.message.text.split(' ').slice(1);
+//   register() {
+//     // Main sell command
+//     this.botCore.registerCommand('sell', async (ctx) => {
+//       const args = ctx.message.text.split(' ').slice(1);
       
-      if (args.length === 0) {
-          return await ctx.reply(
-    '💸 **Sell Command Usage:**\n\nChoose an action:',
-    {
-      parse_mode: 'Markdown',
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: 'Sell All', callback_data: 'sell_all' }],
-          [{ text: 'Sell by Percentage', callback_data: 'sell_percentage' }],
-          [{ text: 'Sell by Amount', callback_data: 'sell_amount' }]
-        ]
-      }
+//       if (args.length === 0) {
+//           return await ctx.reply(
+//     '💸 **Sell Command Usage:**\n\nChoose an action:',
+//     {
+//       parse_mode: 'Markdown',
+//       reply_markup: {
+//         inline_keyboard: [
+//           [{ text: 'Sell All', callback_data: 'sell_all' }],
+//           [{ text: 'Sell by Percentage', callback_data: 'sell_percentage' }],
+//           [{ text: 'Sell by Amount', callback_data: 'sell_amount' }]
+//         ]
+//       }
+//     }
+//   );
+//         return ctx.reply(`💸 **Sell Command Usage:**
+
+// **Percentage Sell:**
+// • \`/sell 25%\` - Sell 25% of all positions
+// • \`/sell 50% <token_address>\` - Sell 50% of specific token
+// • \`/sell all\` - Sell all positions
+
+// **Amount Sell:**
+// • \`/sell 1000 <token_address>\` - Sell 1000 tokens
+// • \`/sell <token_address>\` - Sell all of specific token
+
+// **Examples:**
+// • \`/sell 50% BONK\`
+// • \`/sell all\`
+// • \`/sell 1000 So11111111111111111111111111111111111111112\`
+
+// ✨ **Real blockchain execution enabled**`, 
+//           { parse_mode: 'Markdown' });
+//       }
+
+//       await this.processSellCommand(ctx, args);
+//     });
+
+//     // Text handler for sell confirmation
+//     this.botCore.registerTextHandler('awaiting_sell_confirmation', async (ctx) => {
+//       await this.handleSellConfirmation(ctx);
+//     });
+//   }
+
+// In your existing SellCommand.js, you can remove these lines from the register() method:
+// All the callback handler registrations can be removed since they're now in SellCommandHandler
+
+// Keep only:
+register() {
+  // Main sell command
+  this.botCore.registerCommand('sell', async (ctx) => {
+    const args = ctx.message.text.split(' ').slice(1);
+    
+    if (args.length === 0) {
+      return await ctx.reply(
+        '💸 **Sell Command Usage:**\n\nChoose an action:',
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: 'Sell All', callback_data: 'sell_all' }],
+              [{ text: 'Sell by Percentage', callback_data: 'sell_percentage' }],
+              [{ text: 'Sell by Amount', callback_data: 'sell_amount' }]
+            ]
+          }
+        }
+      );
     }
-  );
-        return ctx.reply(`💸 **Sell Command Usage:**
 
-**Percentage Sell:**
-• \`/sell 25%\` - Sell 25% of all positions
-• \`/sell 50% <token_address>\` - Sell 50% of specific token
-• \`/sell all\` - Sell all positions
+    await this.processSellCommand(ctx, args);
+  });
 
-**Amount Sell:**
-• \`/sell 1000 <token_address>\` - Sell 1000 tokens
-• \`/sell <token_address>\` - Sell all of specific token
-
-**Examples:**
-• \`/sell 50% BONK\`
-• \`/sell all\`
-• \`/sell 1000 So11111111111111111111111111111111111111112\`
-
-✨ **Real blockchain execution enabled**`, 
-          { parse_mode: 'Markdown' });
-      }
-
-      await this.processSellCommand(ctx, args);
-    });
-
-    // Text handler for sell confirmation
-    this.botCore.registerTextHandler('awaiting_sell_confirmation', async (ctx) => {
-      await this.handleSellConfirmation(ctx);
-    });
-  }
+  // Text handler for sell confirmation
+  this.botCore.registerTextHandler('awaiting_sell_confirmation', async (ctx) => {
+    await this.handleSellConfirmation(ctx);
+  });
+}
 
   async processSellCommand(ctx, args) {
     try {
@@ -127,6 +161,12 @@ class SellCommand {
     }
   }
 
+
+
+
+
+
+  
   parseSellArguments(args, positions) {
     const result = {
       isValid: false,

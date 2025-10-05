@@ -584,6 +584,133 @@ function clearCache() {
   console.log('🧹 Token data cache cleared');
 }
 
+// Add this method to your tokenDataService.js
+async function searchTokens(keyword, chain) {
+  try {
+    console.log(`Searching for tokens with keyword: ${keyword} on chain: ${chain}`);
+    
+    if (chain === 'solana') {
+      try {
+        // Use Jupiter API for Solana token search
+      const response = await (
+        await fetch(`https://lite-api.jup.ag/ultra/v1/search?query=${encodeURIComponent(keyword)}`)
+      ).json();
+
+      console.log('Solana search response:', response);
+        debugger
+        if (!response.length || response.length === 0) {
+          throw new Error(`Jupiter API responded with empty response or status: ${response.status}`);
+        }
+        
+        const data = response;
+        //const data = await response.json();
+
+        console.log('Jupiter search response:', data);
+        
+        // Jupiter returns an array directly, not wrapped in a data property
+        if (Array.isArray(data) && data.length > 0) {
+          return data.map(token => ({
+            address: token.id, // Jupiter uses 'id' for token address
+            name: token.name,
+            symbol: token.symbol,
+            price: token.usdPrice || 0,
+            priceUSD: token.usdPrice || 0,
+            marketCap: token.mcap || 0,
+            liquidity: token.liquidity || 0,
+            volume24h: token.stats24h ? (token.stats24h.buyVolume + token.stats24h.sellVolume) : 0,
+            priceChange24h: token.stats24h ? token.stats24h.priceChange : 0,
+            decimals: token.decimals,
+            logoURI: token.icon || '',
+            verified: token.isVerified || false,
+            holders: token.holderCount || 0,
+            organicScore: token.organicScore || 0,
+            tags: token.tags || []
+          }));
+        }
+        
+        return [];
+      } catch (error) {
+        console.error('Jupiter API error:', error);
+        
+        // Fallback: Try Jupiter's token list endpoint
+        try {
+          const fallbackResponse = await fetch('https://token.jup.ag/all');
+          const allTokens = await fallbackResponse.json();
+          
+          const searchTerm = keyword.toLowerCase();
+          const matchingTokens = allTokens.filter(token => 
+            token.name.toLowerCase().includes(searchTerm) || 
+            token.symbol.toLowerCase().includes(searchTerm)
+          ).slice(0, 10);
+          
+          return matchingTokens.map(token => ({
+            address: token.address,
+            name: token.name,
+            symbol: token.symbol,
+            price: 0, // Price not available in token list
+            priceUSD: 0,
+            marketCap: 0,
+            liquidity: 0,
+            volume24h: 0,
+            priceChange24h: 0,
+            decimals: token.decimals,
+            logoURI: token.logoURI || '',
+            verified: token.verified || false,
+            holders: 0,
+            organicScore: 0,
+            tags: token.tags || []
+          }));
+        } catch (fallbackError) {
+          console.error('Jupiter fallback error:', fallbackError);
+          return [];
+        }
+      }
+    } 
+    
+    else if (['ethereum', 'bsc', 'base', 'arbitrum', 'polygon'].includes(chain)) {
+      try {
+        // Use CoinGecko for EVM chains
+        const response = await axios.get(`https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(keyword)}`, {
+          timeout: 10000,
+          headers: {
+            'Accept': 'application/json',
+            'User-Agent': 'SmileSnipperBot/1.0'
+          }
+        });
+        
+        if (response.data && response.data.coins) {
+          return response.data.coins.map(coin => ({
+            address: coin.contract_address || coin.id,
+            name: coin.name,
+            symbol: coin.symbol,
+            price: 0, // CoinGecko search doesn't include prices
+            priceUSD: 0,
+            marketCap: coin.market_cap_rank ? 1000000 * (1000 - coin.market_cap_rank) : 0, // Estimate based on rank
+            liquidity: 0,
+            volume24h: 0,
+            priceChange24h: 0,
+            decimals: 18, // Default for EVM tokens
+            logoURI: coin.large || coin.thumb || '',
+            verified: false,
+            holders: 0,
+            organicScore: 0,
+            tags: []
+          })).slice(0, 10);
+        }
+        
+        return [];
+      } catch (error) {
+        console.error('CoinGecko search error:', error);
+        return [];
+      }
+    }
+    
+    return [];
+  } catch (error) {
+    console.error('Token search error:', error);
+    return [];
+  }
+}
 // Add comprehensive token analysis functionality
 async function getAdvancedTokenData(tokenAddress, chain = 'solana') {
   try {
@@ -1994,5 +2121,8 @@ module.exports = {
   formatTokenMessage,
   formatNumber,
   clearCache,
+  searchTokens,
+  getRandomTokenName,
+  getRandomTokenSymbol,
   getEnhancedTokenData
 };

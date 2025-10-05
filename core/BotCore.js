@@ -8,7 +8,7 @@ class BotCore {
     this.middleware = [];
     this.errorHandlers = new Map();
     this.sessionManager = null;
-    
+    this.textHandlerCategories = {};
     // Configure core middleware
     this.setupCoreMiddleware();
     this.setupErrorHandling();
@@ -88,6 +88,11 @@ class BotCore {
     process.on('unhandledRejection', (reason, promise) => {
       console.error('❌ Unhandled Rejection:', { reason, promise });
     });
+  }
+
+  registerTextHandlerCategory(categoryName, handler) {
+    this.textHandlerCategories[categoryName] = handler;
+    console.log(`📝 Registered text handler category: ${categoryName}`);
   }
 
   categorizeError(error) {
@@ -178,6 +183,276 @@ class BotCore {
     });
   }
 
+  // Add this method to your SmileSnipperBot class
+async promptForTokenAddressOrKeyword(ctx, action = 'buy') {
+  const chainName = ctx.session.buyChain.charAt(0).toUpperCase() + ctx.session.buyChain.slice(1);
+  
+  ctx.session.awaitingBuyTokenInput = true;
+  
+  await ctx.editMessageText(
+    `🔍 **${chainName} Token Search**\n\n` +
+    `Please input either:\n\n` +
+    `• **Token Address** - Full contract address\n` +
+    `• **Search Keyword** - Token name or symbol\n\n` +
+    `**Examples:**\n` +
+    `• \`EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v\` (USDC address)\n` +
+    `• \`BONK\` (search for BONK tokens)\n` +
+    `• \`Pepe\` (search for Pepe tokens)\n` +
+    `• \`USDC\` (search for USDC tokens)\n\n` +
+    `**Chain:** ${chainName}`,
+    { parse_mode: 'Markdown' }
+  );
+}
+
+// Add token search functionality
+async searchTokensByKeyword(keyword, chain) {
+  try {
+    const tokenDataService = require('../services/tokenDataService');
+    
+    // You'll need to implement this method in your tokenDataService
+    // This should search for tokens by name/symbol from your preferred API
+    const searchResults = await tokenDataService.searchTokens(keyword, chain);
+    
+    return searchResults || [];
+  } catch (error) {
+    console.error('Token search error:', error);
+    return [];
+  }
+}
+
+// Handle buy token input (address or search keyword)
+async handleBuyTokenInput(ctx) {
+  try {
+    const input = ctx.message.text.trim();
+    
+    // Check if input looks like a token address (longer than 20 chars and alphanumeric)
+    const isTokenAddress = input.length > 20 && /^[A-Za-z0-9]+$/.test(input);
+
+    if (isTokenAddress) {
+      // Direct token address input
+      await this.handleDirectBuyTokenAddress(ctx, input);
+    } else {
+      // Search keyword input
+      await this.handleBuyTokenSearch(ctx, input);
+    }
+  } catch (error) {
+    console.error('Buy token input error:', error);
+    await ctx.reply('❌ Error processing input. Please try again.');
+  }
+}
+
+// Handle direct token address for buy
+async handleDirectBuyTokenAddress(ctx, tokenAddress) {
+  try {
+    // Get token info
+    const tokenDataService = require('../services/tokenDataService');
+    const infoResult = await tokenDataService.getComprehensiveTokenInfo(tokenAddress, ctx.session.buyChain);
+    const tokenInfo = infoResult?.data || {};
+
+    if (!tokenInfo.name && !tokenInfo.symbol) {
+      return ctx.reply('❌ Could not find token information. Please check the address and try again.');
+    }
+
+    // Show single token confirmation
+    await this.showBuyTokenConfirmation(ctx, tokenAddress, tokenInfo, 'direct');
+  } catch (error) {
+    console.error('Direct buy token address error:', error);
+    await ctx.reply('❌ Error processing token address. Please try again.');
+  }
+}
+
+// Handle token search for buy
+async handleBuyTokenSearch(ctx, keyword) {
+  try {
+    const searchResults = await this.searchTokensByKeyword(keyword, ctx.session.buyChain);
+
+    if (searchResults.length === 0) {
+      return ctx.reply(`❌ No tokens found matching "${keyword}" on ${ctx.session.buyChain.toUpperCase()}.`);
+    }
+
+    if (searchResults.length === 1) {
+      // Single match - show confirmation
+      const token = searchResults[0];
+      await this.showBuyTokenConfirmation(ctx, token.address, token, 'search', keyword);
+    } else {
+      // Multiple matches - show selection menu
+      await this.showBuyTokenSelectionMenu(ctx, searchResults, keyword);
+    }
+  } catch (error) {
+    console.error('Buy token search error:', error);
+    await ctx.reply('❌ Error searching for tokens. Please try again.');
+  }
+}
+
+// Show buy token confirmation
+// Update this method in your SmileSnipperBot class in app.js
+async showBuyTokenConfirmation(ctx, tokenAddress, tokenInfo, inputType, searchKeyword = '') {
+  try {
+    let message = `🎯 **Token Found**\n\n`;
+    
+    if (inputType === 'search') {
+      message += `🔍 **Search:** "${searchKeyword}"\n`;
+    }
+    
+    const verifiedIcon = tokenInfo.verified ? '✅' : '';
+    message += `${verifiedIcon}📊 **${tokenInfo.symbol || 'UNKNOWN'}** (${tokenInfo.name || 'Unknown Token'})\n`;
+    
+    // Price with better formatting
+    if (tokenInfo.priceUSD > 0) {
+      const priceDisplay = tokenInfo.priceUSD > 1 ? 
+        tokenInfo.priceUSD.toFixed(4) : tokenInfo.priceUSD.toFixed(8);
+      message += `💲 **Price:** $${priceDisplay}\n`;
+    } else {
+      message += `💲 **Price:** Not available\n`;
+    }
+    
+    // Market cap
+    if (tokenInfo.marketCap > 0) {
+      message += `📊 **Market Cap:** $${this.formatNumber(tokenInfo.marketCap)}\n`;
+    }
+    
+    // Liquidity
+    if (tokenInfo.liquidity > 0) {
+      message += `💰 **Liquidity:** $${this.formatNumber(tokenInfo.liquidity)}\n`;
+    }
+    
+    // Volume
+    if (tokenInfo.volume24h > 0) {
+      message += `📈 **24h Volume:** $${this.formatNumber(tokenInfo.volume24h)}\n`;
+    }
+    
+    // Price change
+    if (tokenInfo.priceChange24h !== undefined && tokenInfo.priceChange24h !== 0) {
+      const changeIcon = tokenInfo.priceChange24h >= 0 ? '📈' : '📉';
+      message += `${changeIcon} **24h Change:** ${tokenInfo.priceChange24h.toFixed(2)}%\n`;
+    }
+    
+    // Holders
+    if (tokenInfo.holders > 0) {
+      message += `👥 **Holders:** ${this.formatNumber(tokenInfo.holders)}\n`;
+    }
+    
+    // Organic score (Jupiter specific)
+    if (tokenInfo.organicScore > 0) {
+      message += `📊 **Organic Score:** ${Math.round(tokenInfo.organicScore)}/100\n`;
+    }
+    
+    message += `⛓️ **Chain:** ${ctx.session.buyChain.toUpperCase()}\n`;
+    message += `📍 **Address:** \`${tokenAddress}\`\n\n`;
+    message += `Select this token to proceed with purchase:`;
+
+    // Store token for selection
+    ctx.session.buySearchResults = [{ address: tokenAddress, ...tokenInfo }];
+
+    await ctx.reply(message, {
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [
+          [{
+            text: `✅ Select ${tokenInfo.symbol || 'Token'}`,
+            callback_data: `select_buy_token_0`
+          }],
+          [{ 
+            text: '🔍 Search Again', 
+            callback_data: ctx.session.buyChain 
+          }],
+          [{ 
+            text: '⬅️ Back to Chains', 
+            callback_data: 'buy' 
+          }]
+        ]
+      }
+    });
+  } catch (error) {
+    console.error('Buy token confirmation error:', error);
+    await ctx.reply('❌ Error displaying token confirmation. Please try again.');
+  }
+}
+
+// Show buy token selection menu
+// Update this method in your SmileSnipperBot class in app.js
+async showBuyTokenSelectionMenu(ctx, tokens, keyword) {
+  try {
+    let message = `🔍 **Found ${tokens.length} tokens matching "${keyword}":**\n\n`;
+
+    const buttons = [];
+    for (let i = 0; i < Math.min(tokens.length, 10); i++) {
+      const token = tokens[i];
+      
+      // Format market cap
+      const mcapDisplay = token.marketCap > 0 ? this.formatNumber(token.marketCap) : 'N/A';
+      
+      // Format price with better precision
+      let priceDisplay = 'N/A';
+      if (token.priceUSD > 0) {
+        if (token.priceUSD > 1) {
+          priceDisplay = `$${token.priceUSD.toFixed(4)}`;
+        } else {
+          priceDisplay = `$${token.priceUSD.toFixed(8)}`;
+        }
+      }
+      
+      // Show additional info for verified tokens
+      const verifiedIcon = token.verified ? '✅' : '';
+      const organicScore = token.organicScore > 0 ? `📊${Math.round(token.organicScore)}` : '';
+      
+      message += `${i + 1}. ${verifiedIcon}**${token.symbol}** (${token.name || 'Unknown'})\n`;
+      message += `   💲 Price: ${priceDisplay}\n`;
+      message += `   📊 Market Cap: $${mcapDisplay}\n`;
+      if (token.holders > 0) {
+        message += `   👥 Holders: ${this.formatNumber(token.holders)}\n`;
+      }
+      if (token.volume24h > 0) {
+        message += `   📈 24h Volume: $${this.formatNumber(token.volume24h)}\n`;
+      }
+      if (organicScore) {
+        message += `   ${organicScore}\n`;
+      }
+      message += `\n`;
+
+      // Create button text with key info
+      let buttonText = `${i + 1}. ${token.symbol}`;
+      if (token.verified) buttonText += ' ✅';
+      if (token.priceUSD > 0) {
+        buttonText += ` - ${priceDisplay}`;
+      }
+      
+      buttons.push([{
+        text: buttonText,
+        callback_data: `select_buy_token_${i}`
+      }]);
+    }
+
+    // Store search results in session for selection
+    ctx.session.buySearchResults = tokens.slice(0, 10);
+
+    buttons.push([{ 
+      text: '🔍 Search Again', 
+      callback_data: ctx.session.buyChain 
+    }]);
+    buttons.push([{ 
+      text: '⬅️ Back to Chains', 
+      callback_data: 'buy' 
+    }]);
+
+    await ctx.reply(message, {
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: buttons
+      }
+    });
+  } catch (error) {
+    console.error('Buy token selection menu error:', error);
+    await ctx.reply('❌ Error displaying token selection. Please try again.');
+  }
+}
+// Format large numbers
+formatNumber(num) {
+  if (num >= 1e9) return (num / 1e9).toFixed(2) + 'B';
+  if (num >= 1e6) return (num / 1e6).toFixed(2) + 'M';
+  if (num >= 1e3) return (num / 1e3).toFixed(2) + 'K';
+  return num.toString();
+}
   // Session state management
   setState(ctx, state, data = {}) {
     ctx.session.state = state;

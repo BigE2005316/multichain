@@ -144,6 +144,20 @@ const userSchema = new mongoose.Schema({
   walletNames: { type: Map, of: String },
   smartSlippage: { type: Boolean, default: false },
 
+  customTPSL: {
+    enabled: { type: Boolean, default: false },
+    takeProfits: [{
+      percent: Number,
+      sellPercent: Number,
+      triggered: { type: Boolean, default: false }
+    }],
+    stopLoss: {
+      percent: Number,
+      trailing: { type: Boolean, default: false },
+      triggered: { type: Boolean, default: false },
+      highWaterMark: { type: Number, default: 0 }
+    }
+  },
   // Transaction history
   transactions: [{
     userId: Number,

@@ -778,62 +778,199 @@ createJupiterWalletAdapter(keypair) {
 // }
 
 // ...existing code...
+// async importWallet(userId, privateKey, chain = 'solana') {
+//   let keypair, address;
+//   try {
+//     if (chain === 'solana') {
+//       const { Keypair } = require('@solana/web3.js');
+//       const bs58 = require('bs58');
+//       let secretKey;
+//       if (privateKey.startsWith('[')) {
+//         // Array format
+//         const arr = JSON.parse(privateKey);
+//         secretKey = Uint8Array.from(arr);
+//       } else if (/^[0-9a-fA-F]{128}$/.test(privateKey)) {
+//         // Hex format
+//         secretKey = Uint8Array.from(Buffer.from(privateKey, 'hex'));
+//       } else {
+//         // Assume base58
+//         secretKey = Uint8Array.from(Buffer.from(privateKey, 'hex'));
+//         // const keypair = Keypair.fromSecretKey(secretKeyUint8);
+//         //  secretKey = bs58.decode(privateKey);
+//                 //secretKey = privateKey;
+//       }
+//       keypair = Keypair.fromSecretKey(secretKey);
+//       address = keypair.publicKey.toBase58();
+//     } else {
+//       // EVM wallet import logic here
+//       // ...
+//     }
+
+//     // Fetch wallet stats
+//     const balanceInfo = await this.getWalletBalance(address, chain);
+
+//     // Load user data
+//     const userData = await userService.getUserSettings(userId);
+//     if (!userData.custodialWallets) userData.custodialWallets = {};
+//     userData.custodialWallets[chain] = {
+//       address,
+//       privateKey, // Store encrypted if needed
+//       createdAt: new Date(),
+//       balance: parseFloat(balanceInfo.balance),
+//       totalReceived: balanceInfo.totalReceived || 0,
+//       totalSent: balanceInfo.totalSent || 0,
+//       txCount: balanceInfo.txCount || 0,
+//       lastUpdated: new Date()
+//     };
+
+//     await userService.saveUserData(userId, userData);
+//     return {
+//       address,
+//       balance: balanceInfo.balance,
+//       totalReceived: balanceInfo.totalReceived || 0,
+//       totalSent: balanceInfo.totalSent || 0,
+//       txCount: balanceInfo.txCount || 0
+//     };
+//   } catch (e) {
+//     console.error('Import wallet error:', e);
+//     throw new Error('Invalid private key format or failed to import wallet');
+//   }
+// }
 async importWallet(userId, privateKey, chain = 'solana') {
   let keypair, address;
   try {
+    console.log(`🔐 Importing wallet for user ${userId} on chain: ${chain}`);
+    
     if (chain === 'solana') {
       const { Keypair } = require('@solana/web3.js');
       const bs58 = require('bs58');
       let secretKey;
+      
+      // Handle different private key formats
       if (privateKey.startsWith('[')) {
-        // Array format
+        // Array format: [123, 45, 67, ...]
+        console.log('📝 Detected array format private key');
         const arr = JSON.parse(privateKey);
         secretKey = Uint8Array.from(arr);
       } else if (/^[0-9a-fA-F]{128}$/.test(privateKey)) {
-        // Hex format
+        // Hex format: 128 hex characters
+        console.log('📝 Detected hex format private key');
         secretKey = Uint8Array.from(Buffer.from(privateKey, 'hex'));
+      } else if (/^[0-9a-fA-F]{64}$/.test(privateKey)) {
+        // 64 hex characters (might need padding or conversion)
+        console.log('📝 Detected 64-char hex format, attempting conversion');
+        // This might be incomplete - Solana needs 64 bytes (128 hex chars)
+        throw new Error('Invalid Solana private key length. Expected 128 hex characters or 64-byte array.');
       } else {
-        // Assume base58
-        secretKey = Uint8Array.from(Buffer.from(privateKey, 'hex'));
-        // const keypair = Keypair.fromSecretKey(secretKeyUint8);
-        //  secretKey = bs58.decode(privateKey);
-                //secretKey = privateKey;
+        // Try base58 format
+        console.log('📝 Attempting base58 decode');
+        try {
+          secretKey = bs58.decode(privateKey);
+        } catch (base58Error) {
+          // If base58 fails, try as raw hex
+          console.log('📝 Base58 failed, trying raw hex interpretation');
+          secretKey = Uint8Array.from(Buffer.from(privateKey, 'hex'));
+        }
       }
+      
+      // Validate secret key length for Solana (should be 64 bytes)
+      if (secretKey.length !== 64) {
+        throw new Error(`Invalid Solana private key length: ${secretKey.length} bytes. Expected 64 bytes.`);
+      }
+      
       keypair = Keypair.fromSecretKey(secretKey);
       address = keypair.publicKey.toBase58();
+      
+      console.log(`✅ Solana wallet imported: ${address}`);
+      
+    } else if (['ethereum', 'bsc', 'base', 'polygon', 'arbitrum'].includes(chain)) {
+      // EVM wallet import logic
+      const { ethers } = require('ethers');
+      
+      // Ensure private key has 0x prefix for EVM
+      const formattedPrivateKey = privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`;
+      
+      // Validate EVM private key format (64 hex chars + 0x prefix)
+      if (!/^0x[0-9a-fA-F]{64}$/.test(formattedPrivateKey)) {
+        throw new Error('Invalid EVM private key format. Expected 64 hex characters.');
+      }
+      
+      const wallet = new ethers.Wallet(formattedPrivateKey);
+      address = wallet.address;
+      
+      console.log(`✅ EVM wallet imported on ${chain}: ${address}`);
+      
     } else {
-      // EVM wallet import logic here
-      // ...
+      throw new Error(`Unsupported chain: ${chain}`);
     }
 
-    // Fetch wallet stats
-    const balanceInfo = await this.getWalletBalance(address, chain);
+    // Fetch wallet stats to get current balance
+    let balanceInfo;
+    try {
+      balanceInfo = await this.getWalletBalance(address, chain);
+      console.log(`💰 Fetched balance: ${balanceInfo.balance}`);
+    } catch (balanceError) {
+      console.warn('⚠️ Could not fetch wallet balance:', balanceError.message);
+      balanceInfo = {
+        balance: 0,
+        totalReceived: 0,
+        totalSent: 0,
+        txCount: 0
+      };
+    }
 
-    // Load user data
+    // **ENCRYPT THE PRIVATE KEY BEFORE STORING**
+    const encryptedPrivateKey = this.encrypt(privateKey);
+    console.log('🔒 Private key encrypted successfully');
+
+    // Load existing user data
     const userData = await userService.getUserSettings(userId);
-    if (!userData.custodialWallets) userData.custodialWallets = {};
+    if (!userData.custodialWallets) {
+      userData.custodialWallets = {};
+    }
+
+    // Store the wallet with encrypted private key
     userData.custodialWallets[chain] = {
       address,
-      privateKey, // Store encrypted if needed
-      createdAt: new Date(),
-      balance: parseFloat(balanceInfo.balance),
+      privateKey: encryptedPrivateKey, // Store ENCRYPTED private key
+      mnemonic: null, // No mnemonic for imported wallets
+      createdAt: new Date().toISOString(),
+      imported: true, // Flag to indicate this was imported
+      importedAt: new Date().toISOString(),
+      balance: parseFloat(balanceInfo.balance || 0),
       totalReceived: balanceInfo.totalReceived || 0,
       totalSent: balanceInfo.totalSent || 0,
       txCount: balanceInfo.txCount || 0,
-      lastUpdated: new Date()
+      lastUpdated: new Date().toISOString()
     };
 
+    // Save the updated user data
     await userService.saveUserData(userId, userData);
+    
+    console.log(`✅ Wallet imported and saved successfully for user ${userId}`);
+
     return {
+      success: true,
       address,
-      balance: balanceInfo.balance,
+      chain,
+      balance: balanceInfo.balance || 0,
       totalReceived: balanceInfo.totalReceived || 0,
       totalSent: balanceInfo.totalSent || 0,
-      txCount: balanceInfo.txCount || 0
+      txCount: balanceInfo.txCount || 0,
+      message: `Wallet imported successfully on ${chain.toUpperCase()}`
     };
-  } catch (e) {
-    console.error('Import wallet error:', e);
-    throw new Error('Invalid private key format or failed to import wallet');
+
+  } catch (error) {
+    console.error('❌ Import wallet error:', error);
+    
+    // Provide more specific error messages
+    if (error.message.includes('Invalid') || error.message.includes('Expected')) {
+      throw new Error(`Invalid private key format: ${error.message}`);
+    } else if (error.message.includes('Unsupported chain')) {
+      throw new Error(error.message);
+    } else {
+      throw new Error(`Failed to import wallet: ${error.message}`);
+    }
   }
 }
 

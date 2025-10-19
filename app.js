@@ -398,7 +398,7 @@ const connection = new Connection(
   debugger
   // Start TP/SL monitor
   const tpslMonitor = require('./src/services/tpslMonitorService.js');
-  //await tpslMonitor.start();
+  await tpslMonitor.start();
 debugger
     // Enhanced callback handlers for buy/sell confirmations
     this.botCore.registerCallbackHandler(/confirm_buy_(.+)/, async (ctx) => {

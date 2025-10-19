@@ -60,11 +60,13 @@ class TPSLMonitorService {
 
   async checkUserPositions(userData) {
     try {
+      debugger
       const userId = userData.tgId;
       console.log(`🔍 Checking TP/SL for user ${userId}`);
       // Check each chain's wallet
       if (!userData.custodialWallets) return;
       console.log(`🔍 Checking wallets for user ${userId}`);
+      debugger
       for (const [chain, wallets] of Object.entries(userData.custodialWallets)) {
         if (!Array.isArray(wallets) || wallets.length === 0) continue;
         console.log(`🔍 Checking chain ${chain} for user ${userId}`);

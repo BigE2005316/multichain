@@ -33,10 +33,12 @@
 //   return sig;
 // }
 
-const { Connection, Keypair, VersionedTransaction } = require('@solana/web3.js');
+const { Keypair, VersionedTransaction } = require('@solana/web3.js');
 const bs58 = require('bs58');
 const axios = require('axios');
 const cfg = require('../config'); // adjust path to where your cfg is defined
+const { getRPCManager } = require('../../services/rpcManager');
+const rpcManager = getRPCManager();
 
 
 const QUICKNODE_SOL = process.env.QUICKNODE_SOL; // your Solana endpoint
@@ -72,8 +74,11 @@ async function executeSolSwap({ tokenIn, tokenOut, amountIn, slippageBps }) {
   const tx = VersionedTransaction.deserialize(txBuf);
   tx.sign([kp]);
 
-  const sig = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: true });
-  await connection.confirmTransaction(sig, 'confirmed');
+  const sig = await rpcManager.executeWithRetry('solana', async (rpc) => {
+    const s = await rpc.sendRawTransaction(tx.serialize(), { skipPreflight: true });
+    await rpc.confirmTransaction(s, 'confirmed');
+    return s;
+  }, 4);
 
   return sig;
 }

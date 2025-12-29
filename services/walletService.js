@@ -5,7 +5,6 @@ const crypto = require('crypto');
 const userService = require('../users/userService');
 const { getRPCManager } = require('./rpcManager');
 const axios = require('axios');
-const { decrypt } = require('dotenv');
 
 // Enhanced encryption using AES-256-GCM for better security
 const ENCRYPTION_KEY = process.env.WALLET_ENCRYPTION_KEY || crypto.randomBytes(32).toString('hex');
@@ -101,8 +100,8 @@ class WalletService {
   generateSolanaWallet() {
     try {
       const keypair = Keypair.generate();
-      const secretKey = Buffer.from(keypair.secretKey).toString('hex')
-      //const encryptedKey = this.encrypt(secretKey)
+      const secretKey = Buffer.from(keypair.secretKey).toString('hex');
+      
       return {
         address: keypair.publicKey.toString(),
         privateKey: secretKey,
@@ -146,8 +145,8 @@ class WalletService {
         ethereum: 'https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd',
         bsc: 'https://api.coingecko.com/api/v3/simple/price?ids=binancecoin&vs_currencies=usd',
         polygon: 'https://api.coingecko.com/api/v3/simple/price?ids=matic-network&vs_currencies=usd',
-        arbitrum: 'https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd', // Uses ETH price
-        base: 'https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd' // Uses ETH price
+        arbitrum: 'https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd',
+        base: 'https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd'
       };
 
       const coinIds = {
@@ -189,109 +188,20 @@ class WalletService {
     }
   }
 
-  // Create or get user wallet
-  async getOrCreateWallet(userId, chain) {
-    try {
-      const userData = await userService.getUserSettings(userId);
-      
-      // Check if user already has a custodial wallet for this chain
-      if (userData.custodialWallets && userData.custodialWallets[chain] && userData.custodialWallets[chain].address && userData.custodialWallets[chain].privateKey) {
-        // Get balance to verify wallet is accessible
-        try {
-          const address = userData.custodialWallets[chain].address;
-          const balance = await this.getWalletBalance(address, chain);
-          
-          // Decrypt private key for return
-        let privateKey = '';
-        try {
-          privateKey = this.decrypt(userData.custodialWallets[chain].privateKey);
-        } catch (e) {
-          console.log('Decryption failed for existing wallet:', e);
-          privateKey = 'decryption_failed';
-        }
-
-        return {
-          address,
-          privateKey,
-          publicKey: address,
-          exists: true,
-          balance: balance.balance,
-          symbol: balance.symbol,
-          usdValue: balance.usdValue
-        };
-        } catch (balanceError) {
-          console.warn(`Error getting balance for existing wallet: ${balanceError.message}`);
-          // Continue to regenerate wallet if balance check fails
-        }
+  // Create Jupiter wallet adapter
+  createJupiterWalletAdapter(keypair) {
+    return {
+      publicKey: keypair.publicKey,
+      async signTransaction(tx) {
+        tx.partialSign(keypair);
+        return tx;
+      },
+      async signAllTransactions(txs) {
+        txs.forEach(tx => tx.partialSign(keypair));
+        return txs;
       }
-      
-      // Generate new wallet based on chain
-      let wallet;
-      if (chain === 'solana') {
-        wallet = this.generateSolanaWallet();
-      } else if (['ethereum', 'bsc', 'polygon', 'arbitrum', 'base'].includes(chain)) {
-        wallet = this.generateEVMWallet();
-      } else {
-        throw new Error(`Unsupported chain: ${chain}`);
-      }
-      
-      // Encrypt and store the private key
-      const encryptedPrivateKey = this.encrypt(wallet.privateKey);
-      const encryptedMnemonic = wallet.mnemonic ? this.encrypt(wallet.mnemonic) : null;
-      
-      // Save wallet info to user data
-      if (!userData.custodialWallets) {
-        userData.custodialWallets = {};
-      }
-      
-      userData.custodialWallets[chain] = {
-        address: wallet.address,
-        privateKey: encryptedPrivateKey,
-        mnemonic: encryptedMnemonic,
-        createdAt: new Date().toISOString(),
-        balance: 0,
-        totalReceived: 0,
-        totalSent: 0,
-        txCount: 0,
-        lastUpdated: new Date().toISOString()
-      };
-      
-      await userService.saveUserData(userId, userData);
-      
-      console.log(`✅ Created new ${chain} wallet for user ${userId}:`, wallet.address);
-      
-      // Get initial balance
-      const balanceInfo = await this.getWalletBalance(wallet.address, chain);
-      
-      return {
-        address: wallet.address,
-        privateKey: encryptedPrivateKey,
-        mnemonic: wallet.mnemonic,
-        exists: false,
-        balance: balanceInfo.balance,
-        symbol: balanceInfo.symbol,
-        usdValue: balanceInfo.usdValue
-      };
-    } catch (error) {
-      console.error('Error creating wallet:', error);
-      throw error;
-    }
+    };
   }
-
-
-createJupiterWalletAdapter(keypair) {
-  return {
-    publicKey: keypair.publicKey,
-    async signTransaction(tx) {
-      tx.partialSign(keypair);
-      return tx;
-    },
-    async signAllTransactions(txs) {
-      txs.forEach(tx => tx.partialSign(keypair));
-      return txs;
-    }
-  };
-}
 
   // Get real wallet balance from blockchain with caching
   async getWalletBalance(address, chain, retries = 3) {
@@ -370,50 +280,232 @@ createJupiterWalletAdapter(keypair) {
     }
   }
 
-  // Get wallet private key for internal trading operations (no admin check)
-  async getWalletPrivateKeyForTrading(userId, chain) {
+  // Update getOrCreateWallet method for multi-wallet system
+  async getOrCreateWallet(userId, chain) {
     try {
       const userData = await userService.getUserSettings(userId);
       
-      if (!userData.custodialWallets || !userData.custodialWallets[chain]) {
-        throw new Error(`No ${chain} wallet found for user ${userId}`);
+      // Initialize custodialWallets if it doesn't exist
+      if (!userData.custodialWallets) {
+        userData.custodialWallets = {};
       }
-      
-      const wallet = userData.custodialWallets[chain];
-      
-      if (!wallet.privateKey) {
-        throw new Error('Private key not found in wallet data');
+      if (!userData.custodialWallets[chain]) {
+        userData.custodialWallets[chain] = [];
       }
 
-      try {
-        const privateKey = this.decrypt(wallet.privateKey);
+      // Check if user has any wallets for this chain
+      const existingWallets = userData.custodialWallets[chain];
+      if (existingWallets.length > 0) {
+        // Return the default wallet or first wallet
+        const defaultWallet = existingWallets.find(w => w.isDefault) || existingWallets[0];
         
-        // Validate the decrypted key format
-        if (chain === 'solana') {
-          if (!/^[0-9a-fA-F]{128}$/.test(privateKey)) {
-            throw new Error('Invalid Solana private key format');
-          }
-        } else {
-          if (!/^0x[0-9a-fA-F]{64}$/.test(privateKey) && !/^[0-9a-fA-F]{64}$/.test(privateKey)) {
-            throw new Error('Invalid EVM private key format');
-          }
+        try {
+          const balance = await this.getWalletBalance(defaultWallet.address, chain);
+          const privateKey = this.decrypt(defaultWallet.privateKey);
+          
+          return {
+            address: defaultWallet.address,
+            privateKey,
+            publicKey: defaultWallet.address,
+            exists: true,
+            balance: balance.balance,
+            symbol: balance.symbol,
+            usdValue: balance.usdValue,
+            walletIndex: existingWallets.indexOf(defaultWallet)
+          };
+        } catch (balanceError) {
+          console.warn(`Error getting balance for existing wallet: ${balanceError.message}`);
         }
-
-        return privateKey;
-        
-      } catch (decryptError) {
-        console.error('Decryption failed for wallet:', decryptError.message);
-        throw new Error('Failed to decrypt private key - wallet may be corrupted');
       }
+      
+      // Generate new wallet
+      let wallet;
+      if (chain === 'solana') {
+        wallet = this.generateSolanaWallet();
+      } else if (['ethereum', 'bsc', 'polygon', 'arbitrum', 'base'].includes(chain)) {
+        wallet = this.generateEVMWallet();
+      } else {
+        throw new Error(`Unsupported chain: ${chain}`);
+      }
+      
+      const encryptedPrivateKey = this.encrypt(wallet.privateKey);
+      const encryptedMnemonic = wallet.mnemonic ? this.encrypt(wallet.mnemonic) : null;
+      
+      const newWallet = {
+        address: wallet.address,
+        privateKey: encryptedPrivateKey,
+        mnemonic: encryptedMnemonic,
+        createdAt: new Date().toISOString(),
+        balance: 0,
+        totalReceived: 0,
+        totalSent: 0,
+        txCount: 0,
+        lastUpdated: new Date().toISOString(),
+        isDefault: existingWallets.length === 0, // First wallet is default
+        name: `Wallet ${existingWallets.length + 1}`
+      };
+      
+      userData.custodialWallets[chain].push(newWallet);
+      await userService.saveUserData(userId, userData);
+      
+      const balanceInfo = await this.getWalletBalance(wallet.address, chain);
+      
+      return {
+        address: wallet.address,
+        privateKey: wallet.privateKey,
+        publicKey: wallet.address,
+        exists: false,
+        balance: balanceInfo.balance,
+        symbol: balanceInfo.symbol,
+        usdValue: balanceInfo.usdValue,
+        walletIndex: userData.custodialWallets[chain].length - 1
+      };
       
     } catch (error) {
-      console.error('Get private key for trading error:', error);
+      console.error('Error in getOrCreateWallet:', error);
       throw error;
     }
   }
 
-  // Export wallet info (for user backup) with enhanced security
-  async exportWalletInfo(userId, chain) {
+  // Add method to create additional wallets
+  async createNewWallet(userId, chain = 'solana', walletName = null) {
+    const userData = await userService.getUserSettings(userId);
+
+    let wallet;
+    if (chain === 'solana') {
+      wallet = this.generateSolanaWallet();
+    } else if (['ethereum', 'bsc', 'polygon', 'arbitrum', 'base'].includes(chain)) {
+      wallet = this.generateEVMWallet();
+    } else {
+      throw new Error(`Unsupported chain: ${chain}`);
+    }
+
+    const encryptedPrivateKey = this.encrypt(wallet.privateKey);
+    const encryptedMnemonic = wallet.mnemonic ? this.encrypt(wallet.mnemonic) : null;
+
+    if (!userData.custodialWallets) userData.custodialWallets = {};
+    if (!userData.custodialWallets[chain]) userData.custodialWallets[chain] = [];
+
+    const newWallet = {
+      address: wallet.address,
+      privateKey: encryptedPrivateKey,
+      mnemonic: encryptedMnemonic,
+      createdAt: new Date().toISOString(),
+      balance: 0,
+      totalReceived: 0,
+      totalSent: 0,
+      txCount: 0,
+      lastUpdated: new Date().toISOString(),
+      isDefault: userData.custodialWallets[chain].length === 0,
+      name: walletName || `Wallet ${userData.custodialWallets[chain].length + 1}`
+    };
+
+    userData.custodialWallets[chain].push(newWallet);
+    await userService.saveUserData(userId, userData);
+
+    return {
+      address: wallet.address,
+      privateKey: wallet.privateKey,
+      mnemonic: wallet.mnemonic,
+      chain,
+      createdAt: newWallet.createdAt,
+      walletIndex: userData.custodialWallets[chain].length - 1
+    };
+  }
+
+  // Add method to get specific wallet by index
+  async getWalletByIndex(userId, chain, walletIndex = 0) {
+    const userData = await userService.getUserSettings(userId);
+    
+    if (!userData.custodialWallets || !userData.custodialWallets[chain] || !userData.custodialWallets[chain][walletIndex]) {
+      throw new Error(`Wallet not found at index ${walletIndex} for chain ${chain}`);
+    }
+    
+    const wallet = userData.custodialWallets[chain][walletIndex];
+    const privateKey = this.decrypt(wallet.privateKey);
+    
+    return {
+      address: wallet.address,
+      privateKey,
+      name: wallet.name,
+      isDefault: wallet.isDefault,
+      walletIndex
+    };
+  }
+
+  // Add method to set default wallet
+  async setDefaultWallet(userId, chain, walletIndex) {
+    const userData = await userService.getUserSettings(userId);
+    
+    if (!userData.custodialWallets || !userData.custodialWallets[chain]) {
+      throw new Error(`No wallets found for chain ${chain}`);
+    }
+    
+    // Remove default from all wallets
+    userData.custodialWallets[chain].forEach(wallet => {
+      wallet.isDefault = false;
+    });
+    
+    // Set new default
+    if (userData.custodialWallets[chain][walletIndex]) {
+      userData.custodialWallets[chain][walletIndex].isDefault = true;
+    }
+    
+    await userService.saveUserData(userId, userData);
+  }
+
+  // Update getWalletPrivateKeyForTrading to use default wallet
+  async getWalletPrivateKeyForTrading(userId, chain, walletIndex = null) {
+    try {
+      const userData = await userService.getUserSettings(userId);
+      
+      if (!userData.custodialWallets || !userData.custodialWallets[chain]) {
+        throw new Error(`No ${chain} wallets found for user ${userId}`);
+      }
+      
+      let wallets = userData.custodialWallets[chain];
+      
+      // Handle both array and legacy single wallet format
+      if (!Array.isArray(wallets)) {
+        wallets = [wallets];
+        walletIndex = 0;
+      }
+      
+      let wallet;
+      if (walletIndex !== null && wallets[walletIndex]) {
+        wallet = wallets[walletIndex];
+      } else {
+        // Use default wallet or first wallet
+        wallet = wallets.find(w => w.isDefault) || wallets[0];
+      }
+      
+      if (!wallet || !wallet.privateKey) {
+        throw new Error('Private key not found in wallet data');
+      }
+
+      const privateKey = this.decrypt(wallet.privateKey);
+      
+      // Validate the decrypted key format
+      if (chain === 'solana') {
+        if (!/^[0-9a-fA-F]{128}$/.test(privateKey)) {
+          throw new Error('Invalid Solana private key format');
+        }
+      } else {
+        if (!/^0x[0-9a-fA-F]{64}$/.test(privateKey) && !/^[0-9a-fA-F]{64}$/.test(privateKey)) {
+          throw new Error('Invalid EVM private key format');
+        }
+      }
+      
+      return privateKey;
+      
+    } catch (error) {
+      console.error('Error getting wallet private key for trading:', error);
+      throw error;
+    }
+  }
+
+  // Export wallet info (for user backup) with multi-wallet support
+  async exportWalletInfo(userId, chain, walletIndex = null) {
     try {
       const userData = await userService.getUserSettings(userId);
       
@@ -421,13 +513,35 @@ createJupiterWalletAdapter(keypair) {
         throw new Error(`No ${chain} wallet found for this user`);
       }
       
-      const wallet = userData.custodialWallets[chain];
+      let wallets = userData.custodialWallets[chain];
+      
+      // Handle both array and legacy single wallet format
+      if (!Array.isArray(wallets)) {
+        wallets = [wallets]; // Convert legacy format to array
+        walletIndex = 0;
+      }
+      
+      // Get specific wallet or default wallet
+      let wallet;
+      if (walletIndex !== null && wallets[walletIndex]) {
+        wallet = wallets[walletIndex];
+      } else {
+        // Use default wallet or first wallet
+        wallet = wallets.find(w => w.isDefault) || wallets[0];
+      }
+      
+      if (!wallet) {
+        throw new Error('No wallet found at specified index');
+      }
       
       // Always return basic wallet info
       const exportData = {
         address: wallet.address,
         chain: chain,
         createdAt: wallet.createdAt,
+        name: wallet.name || 'Wallet',
+        isDefault: wallet.isDefault || false,
+        walletIndex: wallets.indexOf(wallet),
         warning: '🔥 DELETE THIS MESSAGE AFTER SAVING! Anyone with your private key can access your funds.'
       };
 
@@ -475,13 +589,24 @@ createJupiterWalletAdapter(keypair) {
       // Update user wallet stats
       const userData = await userService.getUserSettings(userId);
       if (userData.custodialWallets && userData.custodialWallets[chain]) {
-        userData.custodialWallets[chain].txCount++;
-        userData.custodialWallets[chain].lastUpdated = new Date().toISOString();
+        let wallets = userData.custodialWallets[chain];
         
-        if (type === 'send' || type === 'buy') {
-          userData.custodialWallets[chain].totalSent += amount;
-        } else if (type === 'receive' || type === 'sell') {
-          userData.custodialWallets[chain].totalReceived += amount;
+        // Handle both array and legacy single wallet format
+        if (!Array.isArray(wallets)) {
+          wallets = [wallets];
+        }
+        
+        // Update default wallet or first wallet
+        const defaultWallet = wallets.find(w => w.isDefault) || wallets[0];
+        if (defaultWallet) {
+          defaultWallet.txCount = (defaultWallet.txCount || 0) + 1;
+          defaultWallet.lastUpdated = new Date().toISOString();
+          
+          if (type === 'send' || type === 'buy') {
+            defaultWallet.totalSent = (defaultWallet.totalSent || 0) + amount;
+          } else if (type === 'receive' || type === 'sell') {
+            defaultWallet.totalReceived = (defaultWallet.totalReceived || 0) + amount;
+          }
         }
         
         await userService.saveUserData(userId, userData);
@@ -515,9 +640,17 @@ createJupiterWalletAdapter(keypair) {
   // Clear cache for specific items
   clearCache(type, key) {
     if (type === 'balance') {
-      this.balanceCache.delete(key);
+      if (key) {
+        this.balanceCache.delete(key);
+      } else {
+        this.balanceCache.clear();
+      }
     } else if (type === 'price') {
-      this.priceCache.delete(key);
+      if (key) {
+        this.priceCache.delete(key);
+      } else {
+        this.priceCache.clear();
+      }
     } else if (type === 'all') {
       this.balanceCache.clear();
       this.priceCache.clear();
@@ -537,8 +670,8 @@ createJupiterWalletAdapter(keypair) {
     };
   }
 
-  // Send native tokens (SOL, ETH, BNB) to another address
-  async sendNativeTokens(userId, chain, destinationAddress, amount) {
+  // Send native tokens with multi-wallet support
+  async sendNativeTokens(userId, chain, destinationAddress, amount, walletIndex = null) {
     try {
       console.log(`📤 Sending ${amount} ${chain.toUpperCase()} from user ${userId} to ${destinationAddress}`);
       
@@ -549,7 +682,27 @@ createJupiterWalletAdapter(keypair) {
         throw new Error(`No ${chain} wallet found for user`);
       }
       
-      const wallet = userData.custodialWallets[chain];
+      let wallets = userData.custodialWallets[chain];
+      
+      // Handle both array and legacy single wallet format
+      if (!Array.isArray(wallets)) {
+        wallets = [wallets]; // Convert legacy format to array
+        walletIndex = 0;
+      }
+      
+      // Get specific wallet or default wallet
+      let wallet;
+      if (walletIndex !== null && wallets[walletIndex]) {
+        wallet = wallets[walletIndex];
+      } else {
+        // Use default wallet or first wallet
+        wallet = wallets.find(w => w.isDefault) || wallets[0];
+      }
+      
+      if (!wallet) {
+        throw new Error('No wallet found for transaction');
+      }
+      
       const fromAddress = wallet.address;
       
       // Check balance
@@ -718,7 +871,14 @@ createJupiterWalletAdapter(keypair) {
         return { canRegenerate: true, reason: 'no_wallet' };
       }
       
-      const wallet = userData.custodialWallets[chain];
+      let wallets = userData.custodialWallets[chain];
+      
+      // Handle both array and legacy single wallet format
+      if (!Array.isArray(wallets)) {
+        wallets = [wallets];
+      }
+      
+      const wallet = wallets[0]; // Use first wallet for legacy compatibility
       
       // Mark the old wallet as corrupted but keep the address for reference
       const corruptedWallet = {
@@ -755,226 +915,210 @@ createJupiterWalletAdapter(keypair) {
     }
   }
 
-  // In walletService.js
-// const { Keypair } = require('@solana/web3.js');
-// const bs58 = require('bs58');
-
-// async importWallet(userId, privateKey) {
-//   let keypair;
-//   try {
-//     if (privateKey.startsWith('[')) {
-//       const arr = JSON.parse(privateKey);
-//       keypair = Keypair.fromSecretKey(Uint8Array.from(arr));
-//     } else {
-//       keypair = Keypair.fromSecretKey(bs58.decode(privateKey));
-//     }
-//     const address = keypair.publicKey.toBase58();
-//     // Save address/privateKey to your user DB as needed
-//     // await saveImportedWallet(userId, address, privateKey);
-//     return { address };
-//   } catch (e) {
-//     throw new Error('Invalid private key format');
-//   }
-// }
-
-// ...existing code...
-// async importWallet(userId, privateKey, chain = 'solana') {
-//   let keypair, address;
-//   try {
-//     if (chain === 'solana') {
-//       const { Keypair } = require('@solana/web3.js');
-//       const bs58 = require('bs58');
-//       let secretKey;
-//       if (privateKey.startsWith('[')) {
-//         // Array format
-//         const arr = JSON.parse(privateKey);
-//         secretKey = Uint8Array.from(arr);
-//       } else if (/^[0-9a-fA-F]{128}$/.test(privateKey)) {
-//         // Hex format
-//         secretKey = Uint8Array.from(Buffer.from(privateKey, 'hex'));
-//       } else {
-//         // Assume base58
-//         secretKey = Uint8Array.from(Buffer.from(privateKey, 'hex'));
-//         // const keypair = Keypair.fromSecretKey(secretKeyUint8);
-//         //  secretKey = bs58.decode(privateKey);
-//                 //secretKey = privateKey;
-//       }
-//       keypair = Keypair.fromSecretKey(secretKey);
-//       address = keypair.publicKey.toBase58();
-//     } else {
-//       // EVM wallet import logic here
-//       // ...
-//     }
-
-//     // Fetch wallet stats
-//     const balanceInfo = await this.getWalletBalance(address, chain);
-
-//     // Load user data
-//     const userData = await userService.getUserSettings(userId);
-//     if (!userData.custodialWallets) userData.custodialWallets = {};
-//     userData.custodialWallets[chain] = {
-//       address,
-//       privateKey, // Store encrypted if needed
-//       createdAt: new Date(),
-//       balance: parseFloat(balanceInfo.balance),
-//       totalReceived: balanceInfo.totalReceived || 0,
-//       totalSent: balanceInfo.totalSent || 0,
-//       txCount: balanceInfo.txCount || 0,
-//       lastUpdated: new Date()
-//     };
-
-//     await userService.saveUserData(userId, userData);
-//     return {
-//       address,
-//       balance: balanceInfo.balance,
-//       totalReceived: balanceInfo.totalReceived || 0,
-//       totalSent: balanceInfo.totalSent || 0,
-//       txCount: balanceInfo.txCount || 0
-//     };
-//   } catch (e) {
-//     console.error('Import wallet error:', e);
-//     throw new Error('Invalid private key format or failed to import wallet');
-//   }
-// }
-async importWallet(userId, privateKey, chain = 'solana') {
-  let keypair, address;
-  try {
-    console.log(`🔐 Importing wallet for user ${userId} on chain: ${chain}`);
-    
-    if (chain === 'solana') {
-      const { Keypair } = require('@solana/web3.js');
-      const bs58 = require('bs58');
-      let secretKey;
-      
-      // Handle different private key formats
-      if (privateKey.startsWith('[')) {
-        // Array format: [123, 45, 67, ...]
-        console.log('📝 Detected array format private key');
-        const arr = JSON.parse(privateKey);
-        secretKey = Uint8Array.from(arr);
-      } else if (/^[0-9a-fA-F]{128}$/.test(privateKey)) {
-        // Hex format: 128 hex characters
-        console.log('📝 Detected hex format private key');
-        secretKey = Uint8Array.from(Buffer.from(privateKey, 'hex'));
-      } else if (/^[0-9a-fA-F]{64}$/.test(privateKey)) {
-        // 64 hex characters (might need padding or conversion)
-        console.log('📝 Detected 64-char hex format, attempting conversion');
-        // This might be incomplete - Solana needs 64 bytes (128 hex chars)
-        throw new Error('Invalid Solana private key length. Expected 128 hex characters or 64-byte array.');
-      } else {
-        // Try base58 format
-        console.log('📝 Attempting base58 decode');
-        try {
-          secretKey = bs58.decode(privateKey);
-        } catch (base58Error) {
-          // If base58 fails, try as raw hex
-          console.log('📝 Base58 failed, trying raw hex interpretation');
-          secretKey = Uint8Array.from(Buffer.from(privateKey, 'hex'));
-        }
-      }
-      
-      // Validate secret key length for Solana (should be 64 bytes)
-      if (secretKey.length !== 64) {
-        throw new Error(`Invalid Solana private key length: ${secretKey.length} bytes. Expected 64 bytes.`);
-      }
-      
-      keypair = Keypair.fromSecretKey(secretKey);
-      address = keypair.publicKey.toBase58();
-      
-      console.log(`✅ Solana wallet imported: ${address}`);
-      
-    } else if (['ethereum', 'bsc', 'base', 'polygon', 'arbitrum'].includes(chain)) {
-      // EVM wallet import logic
-      const { ethers } = require('ethers');
-      
-      // Ensure private key has 0x prefix for EVM
-      const formattedPrivateKey = privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`;
-      
-      // Validate EVM private key format (64 hex chars + 0x prefix)
-      if (!/^0x[0-9a-fA-F]{64}$/.test(formattedPrivateKey)) {
-        throw new Error('Invalid EVM private key format. Expected 64 hex characters.');
-      }
-      
-      const wallet = new ethers.Wallet(formattedPrivateKey);
-      address = wallet.address;
-      
-      console.log(`✅ EVM wallet imported on ${chain}: ${address}`);
-      
-    } else {
-      throw new Error(`Unsupported chain: ${chain}`);
-    }
-
-    // Fetch wallet stats to get current balance
-    let balanceInfo;
+  // Import wallet with multi-wallet support
+  async importWallet(userId, privateKey, chain = 'solana') {
+    let keypair, address;
     try {
-      balanceInfo = await this.getWalletBalance(address, chain);
-      console.log(`💰 Fetched balance: ${balanceInfo.balance}`);
-    } catch (balanceError) {
-      console.warn('⚠️ Could not fetch wallet balance:', balanceError.message);
-      balanceInfo = {
-        balance: 0,
+      console.log(`🔐 Importing wallet for user ${userId} on chain: ${chain}`);
+      
+      if (chain === 'solana') {
+        const { Keypair } = require('@solana/web3.js');
+        const bs58 = require('bs58');
+        let secretKey;
+        
+        // Check if this is already encrypted data (contains colons)
+        if (privateKey.includes(':') && privateKey.split(':').length === 3) {
+          console.log('🔍 Detected encrypted private key format - attempting to decrypt...');
+          try {
+            // Try to decrypt the provided key first
+            const decryptedKey = this.decrypt(privateKey);
+            console.log('✅ Successfully decrypted the provided private key');
+            privateKey = decryptedKey; // Use the decrypted key for import
+          } catch (decryptError) {
+            console.error('❌ Failed to decrypt provided key:', decryptError.message);
+            throw new Error('The provided private key appears to be encrypted but cannot be decrypted. Please provide a raw private key.');
+          }
+        }
+        
+        // Handle different private key formats for raw keys
+        if (privateKey.startsWith('[')) {
+          // Array format: [123, 45, 67, ...]
+          console.log('📝 Detected array format private key');
+          const arr = JSON.parse(privateKey);
+          if (!Array.isArray(arr) || arr.length !== 64) {
+            throw new Error('Invalid array format. Expected array with exactly 64 numbers.');
+          }
+          secretKey = Uint8Array.from(arr);
+        } else if (/^[0-9a-fA-F]{128}$/.test(privateKey)) {
+          // Hex format: 128 hex characters (64 bytes)
+          console.log('📝 Detected 128-char hex format private key');
+          secretKey = Uint8Array.from(Buffer.from(privateKey, 'hex'));
+        } else if (/^[0-9a-fA-F]{64}$/.test(privateKey)) {
+          // 64 hex characters - this might be half a key or in wrong format
+          console.log('📝 Detected 64-char hex format');
+          throw new Error('Invalid Solana private key length. Solana private keys should be 128 hex characters (64 bytes) or a 64-element array.');
+        } else if (privateKey.length >= 80 && privateKey.length <= 90) {
+          // Try base58 format (typical Solana export format)
+          console.log('📝 Attempting base58 decode for Solana key');
+          try {
+            secretKey = bs58.decode(privateKey);
+            if (secretKey.length !== 64) {
+              throw new Error(`Base58 decoded key has wrong length: ${secretKey.length} bytes`);
+            }
+          } catch (base58Error) {
+            console.error('❌ Base58 decode failed:', base58Error.message);
+            throw new Error('Invalid base58 private key format for Solana');
+          }
+        } else {
+          // Unknown format
+          throw new Error(`Unrecognized Solana private key format. Expected:
+          - 128 hex characters (e.g., 1a2b3c4d...)
+          - Base58 string (80-90 characters)
+          - Array format [1,2,3...] with 64 numbers`);
+        }
+        
+        // Validate secret key length for Solana (should be 64 bytes)
+        if (secretKey.length !== 64) {
+          throw new Error(`Invalid Solana private key length: ${secretKey.length} bytes. Expected exactly 64 bytes.`);
+        }
+        
+        keypair = Keypair.fromSecretKey(secretKey);
+        address = keypair.publicKey.toBase58();
+        
+        console.log(`✅ Solana wallet imported successfully: ${address}`);
+        
+      } else if (['ethereum', 'bsc', 'base', 'polygon', 'arbitrum'].includes(chain)) {
+        // EVM wallet import logic
+        const { ethers } = require('ethers');
+        
+        // Check if this is encrypted data for EVM chains too
+        if (privateKey.includes(':') && privateKey.split(':').length === 3) {
+          console.log('🔍 Detected encrypted EVM private key - attempting to decrypt...');
+          try {
+            privateKey = this.decrypt(privateKey);
+            console.log('✅ Successfully decrypted EVM private key');
+          } catch (decryptError) {
+            throw new Error('The provided private key appears to be encrypted but cannot be decrypted.');
+          }
+        }
+        
+        // Clean and format EVM private key
+        let formattedPrivateKey = privateKey.trim();
+        if (!formattedPrivateKey.startsWith('0x')) {
+          formattedPrivateKey = `0x${formattedPrivateKey}`;
+        }
+        
+        // Validate EVM private key format (64 hex chars + 0x prefix = 66 total)
+        if (!/^0x[0-9a-fA-F]{64}$/.test(formattedPrivateKey)) {
+          throw new Error(`Invalid EVM private key format for ${chain}. Expected 64 hex characters (with or without 0x prefix).`);
+        }
+        
+        const wallet = new ethers.Wallet(formattedPrivateKey);
+        address = wallet.address;
+        
+        console.log(`✅ EVM wallet imported on ${chain}: ${address}`);
+        
+      } else {
+        throw new Error(`Unsupported chain: ${chain}`);
+      }
+
+      // Fetch wallet balance
+      let balanceInfo;
+      try {
+        balanceInfo = await this.getWalletBalance(address, chain);
+        console.log(`💰 Fetched balance: ${balanceInfo.balance} ${balanceInfo.symbol}`);
+      } catch (balanceError) {
+        console.warn('⚠️ Could not fetch wallet balance:', balanceError.message);
+        balanceInfo = {
+          balance: '0.000000',
+          usdValue: '0.00',
+          symbol: chain === 'solana' ? 'SOL' : 'ETH'
+        };
+      }
+
+      // Load user data and prepare wallet storage
+      const userData = await userService.getUserSettings(userId);
+      if (!userData.custodialWallets) {
+        userData.custodialWallets = {};
+      }
+      if (!userData.custodialWallets[chain]) {
+        userData.custodialWallets[chain] = [];
+      }
+
+      // Check if wallet already exists
+      const existingWallets = userData.custodialWallets[chain];
+      const existingIndex = existingWallets.findIndex(w => w.address === address);
+      
+      if (existingIndex !== -1) {
+        console.log(`ℹ️ Wallet already exists at index ${existingIndex}`);
+        return {
+          success: true,
+          address,
+          chain,
+          balance: balanceInfo.balance,
+          usdValue: balanceInfo.usdValue,
+          symbol: balanceInfo.symbol,
+          walletIndex: existingIndex,
+          name: existingWallets[existingIndex].name || `Wallet ${existingIndex + 1}`,
+          message: `Wallet already exists and is ready to use!`
+        };
+      }
+
+      // **ENCRYPT THE RAW PRIVATE KEY BEFORE STORING**
+      const encryptedPrivateKey = this.encrypt(privateKey);
+      console.log('🔒 Private key encrypted successfully for storage');
+
+      // Create new wallet entry
+      const newWallet = {
+        address,
+        privateKey: encryptedPrivateKey, // Store ENCRYPTED private key
+        mnemonic: null, // No mnemonic for imported wallets
+        createdAt: new Date().toISOString(),
+        imported: true,
+        importedAt: new Date().toISOString(),
+        balance: parseFloat(balanceInfo.balance || 0),
         totalReceived: 0,
         totalSent: 0,
-        txCount: 0
+        txCount: 0,
+        lastUpdated: new Date().toISOString(),
+        isDefault: existingWallets.length === 0, // First wallet becomes default
+        name: `Imported Wallet ${existingWallets.length + 1}`
       };
-    }
 
-    // **ENCRYPT THE PRIVATE KEY BEFORE STORING**
-    const encryptedPrivateKey = this.encrypt(privateKey);
-    console.log('🔒 Private key encrypted successfully');
+      // Add to wallets array
+      userData.custodialWallets[chain].push(newWallet);
+      await userService.saveUserData(userId, userData);
+      
+      console.log(`✅ Wallet imported and saved successfully for user ${userId}`);
 
-    // Load existing user data
-    const userData = await userService.getUserSettings(userId);
-    if (!userData.custodialWallets) {
-      userData.custodialWallets = {};
-    }
+      return {
+        success: true,
+        address,
+        chain,
+        balance: balanceInfo.balance,
+        usdValue: balanceInfo.usdValue,
+        symbol: balanceInfo.symbol,
+        walletIndex: userData.custodialWallets[chain].length - 1,
+        name: newWallet.name,
+        message: `Wallet imported successfully on ${chain.toUpperCase()}!`
+      };
 
-    // Store the wallet with encrypted private key
-    userData.custodialWallets[chain] = {
-      address,
-      privateKey: encryptedPrivateKey, // Store ENCRYPTED private key
-      mnemonic: null, // No mnemonic for imported wallets
-      createdAt: new Date().toISOString(),
-      imported: true, // Flag to indicate this was imported
-      importedAt: new Date().toISOString(),
-      balance: parseFloat(balanceInfo.balance || 0),
-      totalReceived: balanceInfo.totalReceived || 0,
-      totalSent: balanceInfo.totalSent || 0,
-      txCount: balanceInfo.txCount || 0,
-      lastUpdated: new Date().toISOString()
-    };
-
-    // Save the updated user data
-    await userService.saveUserData(userId, userData);
-    
-    console.log(`✅ Wallet imported and saved successfully for user ${userId}`);
-
-    return {
-      success: true,
-      address,
-      chain,
-      balance: balanceInfo.balance || 0,
-      totalReceived: balanceInfo.totalReceived || 0,
-      totalSent: balanceInfo.totalSent || 0,
-      txCount: balanceInfo.txCount || 0,
-      message: `Wallet imported successfully on ${chain.toUpperCase()}`
-    };
-
-  } catch (error) {
-    console.error('❌ Import wallet error:', error);
-    
-    // Provide more specific error messages
-    if (error.message.includes('Invalid') || error.message.includes('Expected')) {
-      throw new Error(`Invalid private key format: ${error.message}`);
-    } else if (error.message.includes('Unsupported chain')) {
-      throw new Error(error.message);
-    } else {
-      throw new Error(`Failed to import wallet: ${error.message}`);
+    } catch (error) {
+      console.error('❌ Import wallet error:', error);
+      
+      // Provide more specific error messages
+      if (error.message.includes('Invalid') || error.message.includes('Expected')) {
+        throw new Error(`${error.message}`);
+      } else if (error.message.includes('encrypted') || error.message.includes('decrypt')) {
+        throw new Error(`Encryption issue: ${error.message}`);
+      } else if (error.message.includes('Unsupported chain')) {
+        throw new Error(error.message);
+      } else {
+        throw new Error(`Failed to import wallet: ${error.message}`);
+      }
     }
   }
-}
 
-// ...existing code...
   // Generate fresh wallet for users with decryption issues
   async regenerateWallet(userId, chain) {
     try {
@@ -1000,8 +1144,11 @@ async importWallet(userId, privateKey, chain = 'solana') {
       if (!userData.custodialWallets) {
         userData.custodialWallets = {};
       }
+      if (!userData.custodialWallets[chain]) {
+        userData.custodialWallets[chain] = [];
+      }
       
-      userData.custodialWallets[chain] = {
+      const newWalletEntry = {
         address: newWallet.address,
         privateKey: encryptedPrivateKey,
         mnemonic: encryptedMnemonic,
@@ -1012,9 +1159,12 @@ async importWallet(userId, privateKey, chain = 'solana') {
         totalReceived: 0,
         totalSent: 0,
         txCount: 0,
-        lastUpdated: new Date().toISOString()
+        lastUpdated: new Date().toISOString(),
+        isDefault: userData.custodialWallets[chain].length === 0,
+        name: `Regenerated Wallet ${userData.custodialWallets[chain].length + 1}`
       };
       
+      userData.custodialWallets[chain].push(newWalletEntry);
       await userService.saveUserData(userId, userData);
       
       console.log(`✅ Regenerated ${chain} wallet for user ${userId}:`, newWallet.address);
@@ -1039,50 +1189,65 @@ async importWallet(userId, privateKey, chain = 'solana') {
     }
   }
 
+  // Detect chain from address
   async detectChainFromAddress(address) {
-  if (!address || typeof address !== "string") {
-    return "Invalid address";
+    if (!address || typeof address !== "string") {
+      return "Invalid address";
+    }
+
+    // Ethereum + all EVM chains
+    if (/^0x[a-fA-F0-9]{40}$/.test(address)) {
+      return "EVM (Ethereum, Polygon, BSC, Arbitrum, Optimism, etc.)";
+    }
+
+    // Solana (Base58, length 32-44)
+    if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address)) {
+      return "Solana";
+    }
+
+    // Bitcoin Legacy
+    if (/^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$/.test(address)) {
+      return "Bitcoin (Legacy)";
+    }
+
+    // Bitcoin Bech32 (SegWit)
+    if (/^(bc1)[a-z0-9]{25,39}$/.test(address)) {
+      return "Bitcoin (SegWit)";
+    }
+
+    return "Unknown / Unsupported";
   }
 
-  // Ethereum + all EVM chains
-  if (/^0x[a-fA-F0-9]{40}$/.test(address)) {
-    return "EVM (Ethereum, Polygon, BSC, Arbitrum, Optimism, etc.)";
-  }
-
-  // Solana (Base58, length 32-44)
-  if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address)) {
-    return "Solana";
-  }
-
-  // Bitcoin Legacy
-  if (/^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$/.test(address)) {
-    return "Bitcoin (Legacy)";
-  }
-
-  // Bitcoin Bech32 (SegWit)
-  if (/^(bc1)[a-z0-9]{25,39}$/.test(address)) {
-    return "Bitcoin (SegWit)";
-  }
-
-  // Add more heuristics for other chains as needed
-  return "Unknown / Unsupported";
-}
-
-// Examples
-// console.log(detectChainFromAddress("0x742d35Cc6634C0532925a3b844Bc454e4438f44e")); // EVM
-// console.log(detectChainFromAddress("H3V2i6G9E3Zmv92Tx2aYz6vNZtKcTNNWUnwxhWptW1P3")); // Solana
-// console.log(detectChainFromAddress("bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq")); // Bitcoin
-
-  // Get wallet info for UI display
-  async getWalletInfo(userId, chain) {
+  // Get wallet info for UI display with multi-wallet support
+  async getWalletInfo(userId, chain, walletIndex = null) {
     try {
       const userData = await userService.getUserSettings(userId);
       
       if (!userData.custodialWallets || !userData.custodialWallets[chain]) {
         throw new Error(`No ${chain} wallet found for user ${userId}`);
       }
+      debugger
+      let wallets = userData.custodialWallets[chain];
       
-      const wallet = userData.custodialWallets[chain];
+      // Handle both array and legacy single wallet format
+      if (!Array.isArray(wallets)) {
+        wallets = [wallets]; // Convert legacy format to array
+        walletIndex = 0;
+      }
+      debugger
+      // Get specific wallet or default wallet
+      let wallet;
+      if (walletIndex !== null && wallets[walletIndex]) {
+        wallet = wallets[walletIndex];
+      } else {
+        // Use default wallet or first wallet
+        wallet = wallets.find(w => w.isDefault) || wallets[0];
+      }
+      
+      if (!wallet) {
+        throw new Error('No wallet found at specified index');
+      }
+      
       const address = wallet.address;
       
       // Get balance
@@ -1097,7 +1262,10 @@ async importWallet(userId, privateKey, chain = 'solana') {
         lastUpdated: new Date().toISOString(),
         txCount: wallet.txCount || 0,
         totalSent: wallet.totalSent || 0,
-        totalReceived: wallet.totalReceived || 0
+        totalReceived: wallet.totalReceived || 0,
+        name: wallet.name || 'Wallet',
+        isDefault: wallet.isDefault || false,
+        walletIndex: wallets.indexOf(wallet)
       };
       
     } catch (error) {
@@ -1106,8 +1274,8 @@ async importWallet(userId, privateKey, chain = 'solana') {
     }
   }
 
-  // Refresh wallet data
-  async refreshWalletData(userId, chain) {
+  // Refresh wallet data with multi-wallet support
+  async refreshWalletData(userId, chain, walletIndex = null) {
     try {
       const userData = await userService.getUserSettings(userId);
       
@@ -1115,7 +1283,27 @@ async importWallet(userId, privateKey, chain = 'solana') {
         throw new Error(`No ${chain} wallet found for user ${userId}`);
       }
       
-      const wallet = userData.custodialWallets[chain];
+      let wallets = userData.custodialWallets[chain];
+      
+      // Handle both array and legacy single wallet format
+      if (!Array.isArray(wallets)) {
+        wallets = [wallets]; // Convert legacy format to array
+        walletIndex = 0;
+      }
+      
+      // Get specific wallet or default wallet
+      let wallet;
+      if (walletIndex !== null && wallets[walletIndex]) {
+        wallet = wallets[walletIndex];
+      } else {
+        // Use default wallet or first wallet
+        wallet = wallets.find(w => w.isDefault) || wallets[0];
+      }
+      
+      if (!wallet) {
+        throw new Error('No wallet found at specified index');
+      }
+      
       const address = wallet.address;
       
       // Clear cache
@@ -1134,7 +1322,10 @@ async importWallet(userId, privateKey, chain = 'solana') {
         balance: balanceInfo.balance,
         usdValue: balanceInfo.usdValue,
         symbol: balanceInfo.symbol,
-        lastUpdated: new Date().toISOString()
+        lastUpdated: new Date().toISOString(),
+        name: wallet.name || 'Wallet',
+        isDefault: wallet.isDefault || false,
+        walletIndex: wallets.indexOf(wallet)
       };
       
     } catch (error) {
@@ -1145,6 +1336,85 @@ async importWallet(userId, privateKey, chain = 'solana') {
       };
     }
   }
+
+  // Add new method to get wallet address for trading
+  async getWalletAddressForTrading(userId, chain, walletIndex = null) {
+    try {
+      const userData = await userService.getUserSettings(userId);
+      
+      if (!userData.custodialWallets || !userData.custodialWallets[chain]) {
+        throw new Error(`No ${chain} wallets found for user ${userId}`);
+      }
+      
+      let wallets = userData.custodialWallets[chain];
+      
+      // Handle both array and legacy single wallet format
+      if (!Array.isArray(wallets)) {
+        wallets = [wallets]; // Convert legacy format to array
+        walletIndex = 0;
+      }
+      
+      // Get specific wallet or default wallet
+      let wallet;
+      if (walletIndex !== null && wallets[walletIndex]) {
+        wallet = wallets[walletIndex];
+      } else {
+        // Use default wallet or first wallet
+        wallet = wallets.find(w => w.isDefault) || wallets[0];
+      }
+      
+      if (!wallet) {
+        throw new Error('No wallet found for trading');
+      }
+      
+      return wallet.address;
+      
+    } catch (error) {
+      console.error('Error getting wallet address for trading:', error);
+      throw error;
+    }
+  }
+
+  // Add method to rename wallet
+  async renameWallet(userId, chain, walletIndex, newName) {
+    try {
+      const userData = await userService.getUserSettings(userId);
+      
+      if (!userData.custodialWallets || !userData.custodialWallets[chain]) {
+        throw new Error(`No ${chain} wallets found`);
+      }
+      
+      let wallets = userData.custodialWallets[chain];
+      
+      // Handle both array and legacy single wallet format
+      if (!Array.isArray(wallets)) {
+        wallets = [wallets];
+        // Convert to array format
+        userData.custodialWallets[chain] = wallets;
+        walletIndex = 0;
+      }
+      
+      if (!wallets[walletIndex]) {
+        throw new Error('Wallet not found at specified index');
+      }
+      
+      wallets[walletIndex].name = newName;
+      wallets[walletIndex].lastUpdated = new Date().toISOString();
+      
+      await userService.saveUserData(userId, userData);
+      
+      return {
+        success: true,
+        name: newName,
+        walletIndex,
+        address: wallets[walletIndex].address
+      };
+      
+    } catch (error) {
+      console.error('Rename wallet error:', error);
+      throw error;
+    }
+  }
 }
 
 // Create singleton instance
@@ -1152,8 +1422,12 @@ const walletService = new WalletService();
 
 module.exports = {
   getOrCreateWallet: walletService.getOrCreateWallet.bind(walletService),
+  createNewWallet: walletService.createNewWallet.bind(walletService),
+  getWalletByIndex: walletService.getWalletByIndex.bind(walletService),
+  setDefaultWallet: walletService.setDefaultWallet.bind(walletService),
   getWalletBalance: walletService.getWalletBalance.bind(walletService),
   getWalletPrivateKeyForTrading: walletService.getWalletPrivateKeyForTrading.bind(walletService),
+  getWalletAddressForTrading: walletService.getWalletAddressForTrading.bind(walletService),
   processTransactionWithFee: walletService.processTransactionWithFee.bind(walletService),
   exportWalletInfo: walletService.exportWalletInfo.bind(walletService),
   sendNativeTokens: walletService.sendNativeTokens.bind(walletService),
@@ -1165,7 +1439,1658 @@ module.exports = {
   detectChainFromAddress: walletService.detectChainFromAddress.bind(walletService),
   getWalletInfo: walletService.getWalletInfo.bind(walletService),
   refreshWalletData: walletService.refreshWalletData.bind(walletService),
-    decrypt: walletService.decrypt.bind(walletService),
-    createJupiterWalletAdapter: walletService.createJupiterWalletAdapter.bind(walletService)
-
+  renameWallet: walletService.renameWallet.bind(walletService),
+  decrypt: walletService.decrypt.bind(walletService),
+  createJupiterWalletAdapter: walletService.createJupiterWalletAdapter.bind(walletService)
 };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// // services/walletService.js - Enhanced Custodial Wallet Management
+// const { Keypair, Connection, PublicKey, LAMPORTS_PER_SOL, Transaction, SystemProgram } = require('@solana/web3.js');
+// const { ethers, JsonRpcProvider } = require('ethers');
+// const crypto = require('crypto');
+// const userService = require('../users/userService');
+// const { getRPCManager } = require('./rpcManager');
+// const axios = require('axios');
+// const { decrypt } = require('dotenv');
+
+// // Enhanced encryption using AES-256-GCM for better security
+// const ENCRYPTION_KEY = process.env.WALLET_ENCRYPTION_KEY || crypto.randomBytes(32).toString('hex');
+// const ALGORITHM = 'aes-256-gcm';
+// const IV_LENGTH = 16;
+// const TAG_LENGTH = 16;
+
+// console.log('🔐 Wallet encryption key length:', ENCRYPTION_KEY.length);
+
+// class WalletService {
+//   constructor() {
+//     this.rpcManager = getRPCManager();
+//     this.priceCache = new Map();
+//     this.priceCacheTimeout = 30000; // 30 seconds
+//     this.balanceCache = new Map();
+//     this.balanceCacheTimeout = 15000; // 15 seconds
+//   }
+
+//   // Enhanced encryption with authentication
+//   encrypt(text) {
+//     try {
+//       const iv = crypto.randomBytes(IV_LENGTH);
+//       const key = Buffer.from(ENCRYPTION_KEY, 'hex').slice(0, 32);
+//       const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
+      
+//       let encrypted = cipher.update(text, 'utf8');
+//       encrypted = Buffer.concat([encrypted, cipher.final()]);
+      
+//       const tag = cipher.getAuthTag();
+      
+//       // Format: iv:tag:encrypted
+//       return iv.toString('hex') + ':' + tag.toString('hex') + ':' + encrypted.toString('hex');
+//     } catch (error) {
+//       console.error('Encryption error:', error.message);
+//       throw new Error('Failed to encrypt data');
+//     }
+//   }
+
+//   // Enhanced decryption with authentication
+//   decrypt(text) {
+//     try {
+//       if (!text || typeof text !== 'string') {
+//         throw new Error('Invalid encrypted text format');
+//       }
+
+//       const parts = text.split(':');
+//       if (parts.length !== 3) {
+//         // Handle legacy format (fallback)
+//         return this.decryptLegacy(text);
+//       }
+
+//       const iv = Buffer.from(parts[0], 'hex');
+//       const tag = Buffer.from(parts[1], 'hex');
+//       const encrypted = Buffer.from(parts[2], 'hex');
+      
+//       const key = Buffer.from(ENCRYPTION_KEY, 'hex').slice(0, 32);
+//       const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
+//       decipher.setAuthTag(tag);
+      
+//       let decrypted = decipher.update(encrypted);
+//       decrypted = Buffer.concat([decrypted, decipher.final()]);
+      
+//       return decrypted.toString('utf8');
+//     } catch (error) {
+//       console.error('Decryption error:', error.message);
+//       throw new Error('Failed to decrypt data - may be corrupted or key changed');
+//     }
+//   }
+
+//   // Legacy decryption for backward compatibility
+//   decryptLegacy(text) {
+//     try {
+//       const textParts = text.split(':');
+//       if (textParts.length !== 2) {
+//         throw new Error('Invalid legacy encrypted text format');
+//       }
+      
+//       const iv = Buffer.from(textParts[0], 'hex');
+//       const encryptedText = Buffer.from(textParts[1], 'hex');
+//       const key = Buffer.from(ENCRYPTION_KEY, 'hex').slice(0, 32);
+      
+//       const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
+//       let decrypted = decipher.update(encryptedText);
+//       decrypted = Buffer.concat([decrypted, decipher.final()]);
+      
+//       return decrypted.toString('utf8');
+//     } catch (error) {
+//       throw new Error('Failed to decrypt legacy format');
+//     }
+//   }
+
+//   // Generate Solana wallet with enhanced entropy
+//   generateSolanaWallet() {
+//     try {
+//       const keypair = Keypair.generate();
+//       const secretKey = Buffer.from(keypair.secretKey).toString('hex')
+//       //const encryptedKey = this.encrypt(secretKey)
+//       return {
+//         address: keypair.publicKey.toString(),
+//         privateKey: secretKey,
+//         mnemonic: null,
+//         chain: 'solana'
+//       };
+//     } catch (error) {
+//       console.error('Error generating Solana wallet:', error);
+//       throw new Error('Failed to generate Solana wallet');
+//     }
+//   }
+
+//   // Generate EVM wallet with enhanced entropy
+//   generateEVMWallet() {
+//     try {
+//       const wallet = ethers.Wallet.createRandom();
+//       return {
+//         address: wallet.address,
+//         privateKey: wallet.privateKey,
+//         mnemonic: wallet.mnemonic.phrase,
+//         chain: 'evm'
+//       };
+//     } catch (error) {
+//       console.error('Error generating EVM wallet:', error);
+//       throw new Error('Failed to generate EVM wallet');
+//     }
+//   }
+
+//   // Get cached price or fetch new one
+//   async getTokenPrice(chain) {
+//     const cacheKey = `price_${chain}`;
+//     const cached = this.priceCache.get(cacheKey);
+    
+//     if (cached && Date.now() - cached.timestamp < this.priceCacheTimeout) {
+//       return cached.price;
+//     }
+
+//     try {
+//       const priceApis = {
+//         solana: 'https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd',
+//         ethereum: 'https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd',
+//         bsc: 'https://api.coingecko.com/api/v3/simple/price?ids=binancecoin&vs_currencies=usd',
+//         polygon: 'https://api.coingecko.com/api/v3/simple/price?ids=matic-network&vs_currencies=usd',
+//         arbitrum: 'https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd', // Uses ETH price
+//         base: 'https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd' // Uses ETH price
+//       };
+
+//       const coinIds = {
+//         solana: 'solana',
+//         ethereum: 'ethereum',
+//         bsc: 'binancecoin',
+//         polygon: 'matic-network',
+//         arbitrum: 'ethereum',
+//         base: 'ethereum'
+//       };
+
+//       const response = await axios.get(priceApis[chain], { timeout: 5000 });
+//       const coinId = coinIds[chain];
+//       const price = response.data[coinId]?.usd || 0;
+
+//       // Cache the price
+//       this.priceCache.set(cacheKey, { price, timestamp: Date.now() });
+      
+//       return price;
+//     } catch (error) {
+//       console.warn('Error fetching price for', chain, ':', error.message);
+      
+//       // Return cached price if available, even if expired
+//       if (cached) {
+//         return cached.price;
+//       }
+      
+//       // Fallback prices if API fails
+//       const fallbackPrices = {
+//         solana: 150,
+//         ethereum: 3000,
+//         bsc: 300,
+//         polygon: 0.5,
+//         arbitrum: 3000,
+//         base: 3000
+//       };
+      
+//       return fallbackPrices[chain] || 0;
+//     }
+//   }
+
+//   // Create or get user wallet
+//   // async getOrCreateWallet(userId, chain) {
+//   //   try {
+//   //     const userData = await userService.getUserSettings(userId);
+      
+//   //     // Check if user already has a custodial wallet for this chain
+//   //     if (userData.custodialWallets && userData.custodialWallets[chain] && userData.custodialWallets[chain].address && userData.custodialWallets[chain].privateKey) {
+//   //       // Get balance to verify wallet is accessible
+//   //       try {
+//   //         const address = userData.custodialWallets[chain].address;
+//   //         const balance = await this.getWalletBalance(address, chain);
+          
+//   //         // Decrypt private key for return
+//   //       let privateKey = '';
+//   //       try {
+//   //         privateKey = this.decrypt(userData.custodialWallets[chain].privateKey);
+//   //       } catch (e) {
+//   //         console.log('Decryption failed for existing wallet:', e);
+//   //         privateKey = 'decryption_failed';
+//   //       }
+
+//   //       return {
+//   //         address,
+//   //         privateKey,
+//   //         publicKey: address,
+//   //         exists: true,
+//   //         balance: balance.balance,
+//   //         symbol: balance.symbol,
+//   //         usdValue: balance.usdValue
+//   //       };
+//   //       } catch (balanceError) {
+//   //         console.warn(`Error getting balance for existing wallet: ${balanceError.message}`);
+//   //         // Continue to regenerate wallet if balance check fails
+//   //       }
+//   //     }
+      
+//   //     // Generate new wallet based on chain
+//   //     let wallet;
+//   //     if (chain === 'solana') {
+//   //       wallet = this.generateSolanaWallet();
+//   //     } else if (['ethereum', 'bsc', 'polygon', 'arbitrum', 'base'].includes(chain)) {
+//   //       wallet = this.generateEVMWallet();
+//   //     } else {
+//   //       throw new Error(`Unsupported chain: ${chain}`);
+//   //     }
+      
+//   //     // Encrypt and store the private key
+//   //     const encryptedPrivateKey = this.encrypt(wallet.privateKey);
+//   //     const encryptedMnemonic = wallet.mnemonic ? this.encrypt(wallet.mnemonic) : null;
+      
+//   //     // Save wallet info to user data
+//   //     if (!userData.custodialWallets) {
+//   //       userData.custodialWallets = {};
+//   //     }
+      
+//   //     userData.custodialWallets[chain] = {
+//   //       address: wallet.address,
+//   //       privateKey: encryptedPrivateKey,
+//   //       mnemonic: encryptedMnemonic,
+//   //       createdAt: new Date().toISOString(),
+//   //       balance: 0,
+//   //       totalReceived: 0,
+//   //       totalSent: 0,
+//   //       txCount: 0,
+//   //       lastUpdated: new Date().toISOString()
+//   //     };
+      
+//   //     await userService.saveUserData(userId, userData);
+      
+//   //     console.log(`✅ Created new ${chain} wallet for user ${userId}:`, wallet.address);
+      
+//   //     // Get initial balance
+//   //     const balanceInfo = await this.getWalletBalance(wallet.address, chain);
+      
+//   //     return {
+//   //       address: wallet.address,
+//   //       privateKey: encryptedPrivateKey,
+//   //       mnemonic: wallet.mnemonic,
+//   //       exists: false,
+//   //       balance: balanceInfo.balance,
+//   //       symbol: balanceInfo.symbol,
+//   //       usdValue: balanceInfo.usdValue
+//   //     };
+//   //   } catch (error) {
+//   //     console.error('Error creating wallet:', error);
+//   //     throw error;
+//   //   }
+//   // }
+
+
+// createJupiterWalletAdapter(keypair) {
+//   return {
+//     publicKey: keypair.publicKey,
+//     async signTransaction(tx) {
+//       tx.partialSign(keypair);
+//       return tx;
+//     },
+//     async signAllTransactions(txs) {
+//       txs.forEach(tx => tx.partialSign(keypair));
+//       return txs;
+//     }
+//   };
+// }
+
+//   // Get real wallet balance from blockchain with caching
+//   async getWalletBalance(address, chain, retries = 3) {
+//     const cacheKey = `balance_${chain}_${address}`;
+//     const cached = this.balanceCache.get(cacheKey);
+    
+//     if (cached && Date.now() - cached.timestamp < this.balanceCacheTimeout) {
+//       return cached.data;
+//     }
+
+//     try {
+//       let balance = 0;
+//       let nativeSymbol = '';
+
+//       if (chain === 'solana') {
+//         const result = await this.rpcManager.executeWithRetry('solana', async (connection) => {
+//           const publicKey = new PublicKey(address);
+//           const lamports = await connection.getBalance(publicKey, 'confirmed');
+//           return lamports;
+//         }, retries);
+
+//         balance = result / LAMPORTS_PER_SOL;
+//         nativeSymbol = 'SOL';
+        
+//       } else if (['ethereum', 'bsc', 'polygon', 'arbitrum', 'base'].includes(chain)) {
+//         const result = await this.rpcManager.executeWithRetry(chain, async (provider) => {
+//           const wei = await provider.getBalance(address);
+//           return wei;
+//         }, retries);
+
+//         balance = parseFloat(ethers.formatEther(result));
+//         nativeSymbol = chain === 'ethereum' || chain === 'arbitrum' || chain === 'base' ? 'ETH' : 
+//                       chain === 'bsc' ? 'BNB' : 'MATIC';
+//       } else {
+//         throw new Error(`Unsupported chain: ${chain}`);
+//       }
+
+//       // Get USD value
+//       const tokenPrice = await this.getTokenPrice(chain);
+//       const usdValue = balance * tokenPrice;
+
+//       const balanceData = {
+//         balance: balance.toFixed(6),
+//         usdValue: usdValue.toFixed(2),
+//         tokenPrice,
+//         symbol: nativeSymbol,
+//         lastUpdated: Date.now()
+//       };
+
+//       // Cache the balance
+//       this.balanceCache.set(cacheKey, { 
+//         data: balanceData, 
+//         timestamp: Date.now() 
+//       });
+
+//       return balanceData;
+      
+//     } catch (error) {
+//       console.error(`Error getting wallet balance for ${chain}:${address}:`, error.message);
+
+//       // Return cached balance if available
+//       if (cached) {
+//         return { ...cached.data, error: 'Using cached data due to RPC error' };
+//       }
+
+//       return {
+//         balance: '0.000000',
+//         usdValue: '0.00',
+//         tokenPrice: 0,
+//         symbol: chain === 'solana' ? 'SOL' : 
+//                chain === 'ethereum' || chain === 'arbitrum' || chain === 'base' ? 'ETH' : 
+//                chain === 'bsc' ? 'BNB' : 'MATIC',
+//         error: error.message,
+//         lastUpdated: Date.now()
+//       };
+//     }
+//   }
+
+//   // Get wallet private key for internal trading operations (no admin check)
+//   // async getWalletPrivateKeyForTrading(userId, chain) {
+//   //   try {
+//   //     const userData = await userService.getUserSettings(userId);
+      
+//   //     if (!userData.custodialWallets || !userData.custodialWallets[chain]) {
+//   //       throw new Error(`No ${chain} wallet found for user ${userId}`);
+//   //     }
+      
+//   //     const wallet = userData.custodialWallets[chain];
+      
+//   //     if (!wallet.privateKey) {
+//   //       throw new Error('Private key not found in wallet data');
+//   //     }
+
+//   //     try {
+//   //       const privateKey = this.decrypt(wallet.privateKey);
+        
+//   //       // Validate the decrypted key format
+//   //       if (chain === 'solana') {
+//   //         if (!/^[0-9a-fA-F]{128}$/.test(privateKey)) {
+//   //           throw new Error('Invalid Solana private key format');
+//   //         }
+//   //       } else {
+//   //         if (!/^0x[0-9a-fA-F]{64}$/.test(privateKey) && !/^[0-9a-fA-F]{64}$/.test(privateKey)) {
+//   //           throw new Error('Invalid EVM private key format');
+//   //         }
+//   //       }
+
+//   //       return privateKey;
+        
+//   //     } catch (decryptError) {
+//   //       console.error('Decryption failed for wallet:', decryptError.message);
+//   //       throw new Error('Failed to decrypt private key - wallet may be corrupted');
+//   //     }
+      
+//   //   } catch (error) {
+//   //     console.error('Get private key for trading error:', error);
+//   //     throw error;
+//   //   }
+//   // }
+
+//   // Update getWalletPrivateKeyForTrading to use default wallet
+// async getWalletPrivateKeyForTrading(userId, chain, walletIndex = null) {
+//   try {
+//     const userData = await userService.getUserSettings(userId);
+    
+//     if (!userData.custodialWallets || !userData.custodialWallets[chain]) {
+//       throw new Error(`No ${chain} wallets found for user ${userId}`);
+//     }
+    
+//     const wallets = userData.custodialWallets[chain];
+//     let wallet;
+    
+//     if (walletIndex !== null && wallets[walletIndex]) {
+//       wallet = wallets[walletIndex];
+//     } else {
+//       // Use default wallet or first wallet
+//       wallet = wallets.find(w => w.isDefault) || wallets[0];
+//     }
+    
+//     if (!wallet || !wallet.privateKey) {
+//       throw new Error('Private key not found in wallet data');
+//     }
+
+//     const privateKey = this.decrypt(wallet.privateKey);
+    
+//     // Validate the decrypted key format
+//     if (chain === 'solana') {
+//       if (!/^[0-9a-fA-F]{128}$/.test(privateKey)) {
+//         throw new Error('Invalid Solana private key format');
+//       }
+//     } else {
+//       if (!/^0x[0-9a-fA-F]{64}$/.test(privateKey) && !/^[0-9a-fA-F]{64}$/.test(privateKey)) {
+//         throw new Error('Invalid EVM private key format');
+//       }
+//     }
+    
+//     return privateKey;
+    
+//   } catch (error) {
+//     console.error('Error getting wallet private key for trading:', error);
+//     throw error;
+//   }
+// }
+
+//   // Export wallet info (for user backup) with enhanced security
+//   async exportWalletInfo(userId, chain) {
+//     try {
+//       const userData = await userService.getUserSettings(userId);
+      
+//       if (!userData.custodialWallets || !userData.custodialWallets[chain]) {
+//         throw new Error(`No ${chain} wallet found for this user`);
+//       }
+      
+//       const wallet = userData.custodialWallets[chain];
+      
+//       // Always return basic wallet info
+//       const exportData = {
+//         address: wallet.address,
+//         chain: chain,
+//         createdAt: wallet.createdAt,
+//         warning: '🔥 DELETE THIS MESSAGE AFTER SAVING! Anyone with your private key can access your funds.'
+//       };
+
+//       // Try to decrypt private key
+//       try {
+//         if (wallet.privateKey) {
+//           exportData.privateKey = this.decrypt(wallet.privateKey);
+//         } else {
+//           exportData.privateKey = 'undefined';
+//           exportData.error = 'Private key not found in wallet data';
+//         }
+
+//         // Try to decrypt mnemonic if available
+//         if (wallet.mnemonic) {
+//           try {
+//             exportData.mnemonic = this.decrypt(wallet.mnemonic);
+//           } catch (mnemonicError) {
+//             console.warn('Failed to decrypt mnemonic:', mnemonicError.message);
+//             exportData.mnemonic = 'Failed to decrypt mnemonic';
+//           }
+//         }
+        
+//       } catch (decryptError) {
+//         console.error('Export decryption error:', decryptError.message);
+//         exportData.privateKey = 'undefined';
+//         exportData.error = 'Cannot decrypt private key - encryption key may have changed. Please regenerate wallet.';
+//         exportData.supportNote = 'Contact support if you need to recover funds from this wallet.';
+//       }
+      
+//       return exportData;
+      
+//     } catch (error) {
+//       console.error('Export wallet error:', error);
+//       throw error;
+//     }
+//   }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//   // Update getOrCreateWallet method
+// async getOrCreateWallet(userId, chain) {
+//   try {
+//     const userData = await userService.getUserSettings(userId);
+    
+//     // Initialize custodialWallets if it doesn't exist
+//     if (!userData.custodialWallets) {
+//       userData.custodialWallets = {};
+//     }
+//     if (!userData.custodialWallets[chain]) {
+//       userData.custodialWallets[chain] = [];
+//     }
+
+//     // Check if user has any wallets for this chain
+//     const existingWallets = userData.custodialWallets[chain];
+//     if (existingWallets.length > 0) {
+//       // Return the default wallet or first wallet
+//       const defaultWallet = existingWallets.find(w => w.isDefault) || existingWallets[0];
+      
+//       try {
+//         const balance = await this.getWalletBalance(defaultWallet.address, chain);
+//         const privateKey = this.decrypt(defaultWallet.privateKey);
+        
+//         return {
+//           address: defaultWallet.address,
+//           privateKey,
+//           publicKey: defaultWallet.address,
+//           exists: true,
+//           balance: balance.balance,
+//           symbol: balance.symbol,
+//           usdValue: balance.usdValue,
+//           walletIndex: existingWallets.indexOf(defaultWallet)
+//         };
+//       } catch (balanceError) {
+//         console.warn(`Error getting balance for existing wallet: ${balanceError.message}`);
+//       }
+//     }
+    
+//     // Generate new wallet
+//     let wallet;
+//     if (chain === 'solana') {
+//       wallet = this.generateSolanaWallet();
+//     } else if (['ethereum', 'bsc', 'polygon', 'arbitrum', 'base'].includes(chain)) {
+//       wallet = this.generateEVMWallet();
+//     } else {
+//       throw new Error(`Unsupported chain: ${chain}`);
+//     }
+    
+//     const encryptedPrivateKey = this.encrypt(wallet.privateKey);
+//     const encryptedMnemonic = wallet.mnemonic ? this.encrypt(wallet.mnemonic) : null;
+    
+//     const newWallet = {
+//       address: wallet.address,
+//       privateKey: encryptedPrivateKey,
+//       mnemonic: encryptedMnemonic,
+//       createdAt: new Date().toISOString(),
+//       balance: 0,
+//       totalReceived: 0,
+//       totalSent: 0,
+//       txCount: 0,
+//       lastUpdated: new Date().toISOString(),
+//       isDefault: existingWallets.length === 0, // First wallet is default
+//       name: `Wallet ${existingWallets.length + 1}`
+//     };
+    
+//     userData.custodialWallets[chain].push(newWallet);
+//     await userService.saveUserData(userId, userData);
+    
+//     const balanceInfo = await this.getWalletBalance(wallet.address, chain);
+    
+//     return {
+//       address: wallet.address,
+//       privateKey: wallet.privateKey,
+//       publicKey: wallet.address,
+//       exists: false,
+//       balance: balanceInfo.balance,
+//       symbol: balanceInfo.symbol,
+//       usdValue: balanceInfo.usdValue,
+//       walletIndex: userData.custodialWallets[chain].length - 1
+//     };
+    
+//   } catch (error) {
+//     console.error('Error in getOrCreateWallet:', error);
+//     throw error;
+//   }
+// }
+
+// // Add method to create additional wallets
+// async createNewWallet(userId, chain = 'solana', walletName = null) {
+//   const userData = await userService.getUserSettings(userId);
+
+//   let wallet;
+//   if (chain === 'solana') {
+//     wallet = this.generateSolanaWallet();
+//   } else if (['ethereum', 'bsc', 'polygon', 'arbitrum', 'base'].includes(chain)) {
+//     wallet = this.generateEVMWallet();
+//   } else {
+//     throw new Error(`Unsupported chain: ${chain}`);
+//   }
+
+//   const encryptedPrivateKey = this.encrypt(wallet.privateKey);
+//   const encryptedMnemonic = wallet.mnemonic ? this.encrypt(wallet.mnemonic) : null;
+
+//   if (!userData.custodialWallets) userData.custodialWallets = {};
+//   if (!userData.custodialWallets[chain]) userData.custodialWallets[chain] = [];
+
+//   const newWallet = {
+//     address: wallet.address,
+//     privateKey: encryptedPrivateKey,
+//     mnemonic: encryptedMnemonic,
+//     createdAt: new Date().toISOString(),
+//     balance: 0,
+//     totalReceived: 0,
+//     totalSent: 0,
+//     txCount: 0,
+//     lastUpdated: new Date().toISOString(),
+//     isDefault: userData.custodialWallets[chain].length === 0,
+//     name: walletName || `Wallet ${userData.custodialWallets[chain].length + 1}`
+//   };
+
+//   userData.custodialWallets[chain].push(newWallet);
+//   await userService.saveUserData(userId, userData);
+
+//   return {
+//     address: wallet.address,
+//     privateKey: wallet.privateKey,
+//     mnemonic: wallet.mnemonic,
+//     chain,
+//     createdAt: newWallet.createdAt,
+//     walletIndex: userData.custodialWallets[chain].length - 1
+//   };
+// }
+
+// // Add method to get specific wallet by index
+// async getWalletByIndex(userId, chain, walletIndex = 0) {
+//   const userData = await userService.getUserSettings(userId);
+  
+//   if (!userData.custodialWallets || !userData.custodialWallets[chain] || !userData.custodialWallets[chain][walletIndex]) {
+//     throw new Error(`Wallet not found at index ${walletIndex} for chain ${chain}`);
+//   }
+  
+//   const wallet = userData.custodialWallets[chain][walletIndex];
+//   const privateKey = this.decrypt(wallet.privateKey);
+  
+//   return {
+//     address: wallet.address,
+//     privateKey,
+//     name: wallet.name,
+//     isDefault: wallet.isDefault,
+//     walletIndex
+//   };
+// }
+
+// // Add method to set default wallet
+// async setDefaultWallet(userId, chain, walletIndex) {
+//   const userData = await userService.getUserSettings(userId);
+  
+//   if (!userData.custodialWallets || !userData.custodialWallets[chain]) {
+//     throw new Error(`No wallets found for chain ${chain}`);
+//   }
+  
+//   // Remove default from all wallets
+//   userData.custodialWallets[chain].forEach(wallet => {
+//     wallet.isDefault = false;
+//   });
+  
+//   // Set new default
+//   if (userData.custodialWallets[chain][walletIndex]) {
+//     userData.custodialWallets[chain][walletIndex].isDefault = true;
+//   }
+  
+//   await userService.saveUserData(userId, userData);
+// }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//   // Process transaction with dev fee (enhanced fee display)
+//   async processTransactionWithFee(userId, chain, amount, type) {
+//     try {
+//       const devFeePercent = parseFloat(process.env.DEV_FEE_PERCENT || '3');
+//       const devFee = amount * (devFeePercent / 100);
+//       const userAmount = amount - devFee;
+      
+//       // Update user wallet stats
+//       const userData = await userService.getUserSettings(userId);
+//       if (userData.custodialWallets && userData.custodialWallets[chain]) {
+//         userData.custodialWallets[chain].txCount++;
+//         userData.custodialWallets[chain].lastUpdated = new Date().toISOString();
+        
+//         if (type === 'send' || type === 'buy') {
+//           userData.custodialWallets[chain].totalSent += amount;
+//         } else if (type === 'receive' || type === 'sell') {
+//           userData.custodialWallets[chain].totalReceived += amount;
+//         }
+        
+//         await userService.saveUserData(userId, userData);
+//       }
+      
+//       // Track REAL dev fee collection (not simulation)
+//       await userService.updateAdminStats({
+//         feeCollected: devFee,
+//         chain,
+//         action: type,
+//         timestamp: new Date(),
+//         type: 'actual_collection',
+//         userId
+//       });
+      
+//       return {
+//         userAmount,
+//         devFee,
+//         total: amount,
+//         // Enhanced fee display format as requested
+//         feeDisplay: `TX fee - ${String(devFeePercent).padStart(4, '0')}`,
+//         feeCode: String(devFeePercent).padStart(4, '0')
+//       };
+      
+//     } catch (error) {
+//       console.error('Process transaction fee error:', error);
+//       throw error;
+//     }
+//   }
+
+//   // Clear cache for specific items
+//   clearCache(type, key) {
+//     if (type === 'balance') {
+//       this.balanceCache.delete(key);
+//     } else if (type === 'price') {
+//       this.priceCache.delete(key);
+//     } else if (type === 'all') {
+//       this.balanceCache.clear();
+//       this.priceCache.clear();
+//     }
+//   }
+
+//   // Get service status
+//   getStatus() {
+//     return {
+//       rpcManager: this.rpcManager.getStatus(),
+//       cacheStats: {
+//         priceCache: this.priceCache.size,
+//         balanceCache: this.balanceCache.size
+//       },
+//       encryptionAlgorithm: ALGORITHM,
+//       initialized: true
+//     };
+//   }
+
+//   // Send native tokens (SOL, ETH, BNB) to another address
+//   async sendNativeTokens(userId, chain, destinationAddress, amount) {
+//     try {
+//       console.log(`📤 Sending ${amount} ${chain.toUpperCase()} from user ${userId} to ${destinationAddress}`);
+      
+//       // Get user wallet
+//       const userData = await userService.getUserSettings(userId);
+      
+//       if (!userData.custodialWallets || !userData.custodialWallets[chain]) {
+//         throw new Error(`No ${chain} wallet found for user`);
+//       }
+      
+//       const wallet = userData.custodialWallets[chain];
+//       const fromAddress = wallet.address;
+      
+//       // Check balance
+//       const balanceInfo = await this.getWalletBalance(fromAddress, chain);
+//       const availableBalance = parseFloat(balanceInfo.balance);
+      
+//       if (availableBalance < amount) {
+//         throw new Error(`Insufficient balance. Available: ${availableBalance}, Required: ${amount}`);
+//       }
+      
+//       // Get private key (internally within service)
+//       const privateKey = this.decrypt(wallet.privateKey);
+      
+//       let result;
+      
+//       if (chain === 'solana') {
+//         result = await this.sendSolanaTokens(privateKey, destinationAddress, amount);
+//       } else if (['ethereum', 'bsc', 'polygon', 'arbitrum', 'base'].includes(chain)) {
+//         result = await this.sendEVMTokens(privateKey, destinationAddress, amount, chain);
+//       } else {
+//         throw new Error(`Unsupported chain: ${chain}`);
+//       }
+      
+//       // Update wallet stats
+//       wallet.totalSent = (wallet.totalSent || 0) + amount;
+//       wallet.txCount = (wallet.txCount || 0) + 1;
+//       wallet.lastUpdated = new Date().toISOString();
+      
+//       await userService.saveUserData(userId, userData);
+      
+//       // Clear balance cache
+//       this.clearCache('balance', `balance_${chain}_${fromAddress}`);
+      
+//       console.log(`✅ Successfully sent ${amount} ${chain.toUpperCase()} - TX: ${result.txHash}`);
+      
+//       return {
+//         success: true,
+//         txHash: result.txHash,
+//         gasUsed: result.gasUsed,
+//         amount,
+//         chain,
+//         from: fromAddress,
+//         to: destinationAddress,
+//         timestamp: new Date().toISOString()
+//       };
+      
+//     } catch (error) {
+//       console.error('Send native tokens error:', error);
+//       return {
+//         success: false,
+//         error: error.message
+//       };
+//     }
+//   }
+
+//   // Send Solana (SOL) tokens
+//   async sendSolanaTokens(privateKeyHex, destinationAddress, amount) {
+//     try {
+//       const connection = await this.rpcManager.executeWithRetry('solana', async (conn) => conn);
+      
+//       // Convert hex private key to Keypair
+//       const secretKey = new Uint8Array(Buffer.from(privateKeyHex, 'hex'));
+//       const fromKeypair = Keypair.fromSecretKey(secretKey);
+      
+//       // Convert SOL to lamports
+//       const lamports = Math.floor(amount * LAMPORTS_PER_SOL);
+      
+//       // Create and send transaction
+//       const transaction = new Transaction().add(
+//         SystemProgram.transfer({
+//           fromPubkey: fromKeypair.publicKey,
+//           toPubkey: new PublicKey(destinationAddress),
+//           lamports
+//         })
+//       );
+      
+//       // Get recent blockhash
+//       const { blockhash } = await connection.getLatestBlockhash('confirmed');
+//       transaction.recentBlockhash = blockhash;
+//       transaction.feePayer = fromKeypair.publicKey;
+      
+//       // Sign and send transaction
+//       transaction.sign(fromKeypair);
+      
+//       const txHash = await connection.sendRawTransaction(transaction.serialize(), {
+//         skipPreflight: false,
+//         preflightCommitment: 'confirmed'
+//       });
+      
+//       // Wait for confirmation
+//       await connection.confirmTransaction(txHash, 'confirmed');
+      
+//       return {
+//         txHash,
+//         gasUsed: 'N/A'
+//       };
+      
+//     } catch (error) {
+//       console.error('Solana send error:', error);
+//       throw new Error(`Solana transfer failed: ${error.message}`);
+//     }
+//   }
+
+//   // Send EVM tokens (ETH, BNB)
+//   async sendEVMTokens(privateKey, destinationAddress, amount, chain) {
+//     try {
+//       const provider = await this.rpcManager.executeWithRetry(chain, async (p) => p);
+      
+//       const wallet = new ethers.Wallet(privateKey, provider);
+      
+//       // Convert amount to wei
+//       const amountWei = ethers.parseEther(amount.toString());
+      
+//       // Estimate gas
+//       const gasEstimate = await provider.estimateGas({
+//         to: destinationAddress,
+//         value: amountWei
+//       });
+      
+//       // Get current gas price
+//       const gasPrice = await provider.getGasPrice();
+      
+//       // Create transaction
+//       const tx = await wallet.sendTransaction({
+//         to: destinationAddress,
+//         value: amountWei,
+//         gasLimit: gasEstimate,
+//         gasPrice: gasPrice
+//       });
+      
+//       console.log(`📝 ${chain.toUpperCase()} transaction sent: ${tx.hash}`);
+      
+//       // Wait for confirmation
+//       const receipt = await tx.wait();
+//       console.log(`✅ ${chain.toUpperCase()} transaction confirmed: ${receipt.transactionHash}`);
+      
+//       return {
+//         txHash: receipt.transactionHash,
+//         gasUsed: receipt.gasUsed.toString()
+//       };
+      
+//     } catch (error) {
+//       console.error(`${chain} send error:`, error);
+      
+//       if (error.message.includes('insufficient funds')) {
+//         throw new Error('Insufficient funds for transaction (including gas fees)');
+//       } else if (error.message.includes('nonce too low')) {
+//         throw new Error('Transaction nonce error - please try again');
+//       } else if (error.message.includes('replacement transaction underpriced')) {
+//         throw new Error('Network congestion - please try again with higher gas');
+//       } else {
+//         throw new Error(`${chain} transfer failed: ${error.message}`);
+//       }
+//     }
+//   }
+
+//   // Handle wallet decryption failure and offer regeneration
+//   async handleDecryptionFailure(userId, chain) {
+//     try {
+//       console.log(`🔧 Handling decryption failure for user ${userId}, chain: ${chain}`);
+      
+//       const userData = await userService.getUserSettings(userId);
+      
+//       if (!userData.custodialWallets || !userData.custodialWallets[chain]) {
+//         // No wallet exists, this is fine - they can create a new one
+//         return { canRegenerate: true, reason: 'no_wallet' };
+//       }
+      
+//       const wallet = userData.custodialWallets[chain];
+      
+//       // Mark the old wallet as corrupted but keep the address for reference
+//       const corruptedWallet = {
+//         ...wallet,
+//         status: 'corrupted',
+//         corruptedAt: new Date().toISOString(),
+//         originalCreatedAt: wallet.createdAt,
+//         canRegenerate: true
+//       };
+      
+//       // Store corrupted wallet info
+//       if (!userData.corruptedWallets) {
+//         userData.corruptedWallets = {};
+//       }
+//       userData.corruptedWallets[chain] = corruptedWallet;
+      
+//       await userService.saveUserData(userId, userData);
+      
+//       return {
+//         canRegenerate: true,
+//         reason: 'decryption_failed',
+//         oldAddress: wallet.address,
+//         createdAt: wallet.createdAt,
+//         message: 'Your wallet encryption is corrupted. You can create a fresh wallet.'
+//       };
+      
+//     } catch (error) {
+//       console.error('Handle decryption failure error:', error);
+//       return {
+//         canRegenerate: true,
+//         reason: 'error',
+//         message: 'Error handling wallet issue. You can create a fresh wallet.'
+//       };
+//     }
+//   }
+
+//   // In walletService.js
+// // const { Keypair } = require('@solana/web3.js');
+// // const bs58 = require('bs58');
+
+// // async importWallet(userId, privateKey) {
+// //   let keypair;
+// //   try {
+// //     if (privateKey.startsWith('[')) {
+// //       const arr = JSON.parse(privateKey);
+// //       keypair = Keypair.fromSecretKey(Uint8Array.from(arr));
+// //     } else {
+// //       keypair = Keypair.fromSecretKey(bs58.decode(privateKey));
+// //     }
+// //     const address = keypair.publicKey.toBase58();
+// //     // Save address/privateKey to your user DB as needed
+// //     // await saveImportedWallet(userId, address, privateKey);
+// //     return { address };
+// //   } catch (e) {
+// //     throw new Error('Invalid private key format');
+// //   }
+// // }
+
+// // ...existing code...
+// // async importWallet(userId, privateKey, chain = 'solana') {
+// //   let keypair, address;
+// //   try {
+// //     if (chain === 'solana') {
+// //       const { Keypair } = require('@solana/web3.js');
+// //       const bs58 = require('bs58');
+// //       let secretKey;
+// //       if (privateKey.startsWith('[')) {
+// //         // Array format
+// //         const arr = JSON.parse(privateKey);
+// //         secretKey = Uint8Array.from(arr);
+// //       } else if (/^[0-9a-fA-F]{128}$/.test(privateKey)) {
+// //         // Hex format
+// //         secretKey = Uint8Array.from(Buffer.from(privateKey, 'hex'));
+// //       } else {
+// //         // Assume base58
+// //         secretKey = Uint8Array.from(Buffer.from(privateKey, 'hex'));
+// //         // const keypair = Keypair.fromSecretKey(secretKeyUint8);
+// //         //  secretKey = bs58.decode(privateKey);
+// //                 //secretKey = privateKey;
+// //       }
+// //       keypair = Keypair.fromSecretKey(secretKey);
+// //       address = keypair.publicKey.toBase58();
+// //     } else {
+// //       // EVM wallet import logic here
+// //       // ...
+// //     }
+
+// //     // Fetch wallet stats
+// //     const balanceInfo = await this.getWalletBalance(address, chain);
+
+// //     // Load user data
+// //     const userData = await userService.getUserSettings(userId);
+// //     if (!userData.custodialWallets) userData.custodialWallets = {};
+// //     userData.custodialWallets[chain] = {
+// //       address,
+// //       privateKey, // Store encrypted if needed
+// //       createdAt: new Date(),
+// //       balance: parseFloat(balanceInfo.balance),
+// //       totalReceived: balanceInfo.totalReceived || 0,
+// //       totalSent: balanceInfo.totalSent || 0,
+// //       txCount: balanceInfo.txCount || 0,
+// //       lastUpdated: new Date()
+// //     };
+
+// //     await userService.saveUserData(userId, userData);
+// //     return {
+// //       address,
+// //       balance: balanceInfo.balance,
+// //       totalReceived: balanceInfo.totalReceived || 0,
+// //       totalSent: balanceInfo.totalSent || 0,
+// //       txCount: balanceInfo.txCount || 0
+// //     };
+// //   } catch (e) {
+// //     console.error('Import wallet error:', e);
+// //     throw new Error('Invalid private key format or failed to import wallet');
+// //   }
+// // }
+
+// // Replace the importWallet method with this updated version:
+// async importWallet(userId, privateKey, chain = 'solana') {
+//   let keypair, address;
+//   try {
+//     console.log(`🔐 Importing wallet for user ${userId} on chain: ${chain}`);
+    
+//     if (chain === 'solana') {
+//       const { Keypair } = require('@solana/web3.js');
+//       const bs58 = require('bs58');
+//       let secretKey;
+      
+//       // Check if this is already encrypted data (contains colons)
+//       if (privateKey.includes(':') && privateKey.split(':').length === 3) {
+//         console.log('🔍 Detected encrypted private key format - attempting to decrypt...');
+//         try {
+//           // Try to decrypt the provided key first
+//           const decryptedKey = this.decrypt(privateKey);
+//           console.log('✅ Successfully decrypted the provided private key');
+//           privateKey = decryptedKey; // Use the decrypted key for import
+//         } catch (decryptError) {
+//           console.error('❌ Failed to decrypt provided key:', decryptError.message);
+//           throw new Error('The provided private key appears to be encrypted but cannot be decrypted. Please provide a raw private key.');
+//         }
+//       }
+      
+//       // Handle different private key formats for raw keys
+//       if (privateKey.startsWith('[')) {
+//         // Array format: [123, 45, 67, ...]
+//         console.log('📝 Detected array format private key');
+//         const arr = JSON.parse(privateKey);
+//         if (!Array.isArray(arr) || arr.length !== 64) {
+//           throw new Error('Invalid array format. Expected array with exactly 64 numbers.');
+//         }
+//         secretKey = Uint8Array.from(arr);
+//       } else if (/^[0-9a-fA-F]{128}$/.test(privateKey)) {
+//         // Hex format: 128 hex characters (64 bytes)
+//         console.log('📝 Detected 128-char hex format private key');
+//         secretKey = Uint8Array.from(Buffer.from(privateKey, 'hex'));
+//       } else if (/^[0-9a-fA-F]{64}$/.test(privateKey)) {
+//         // 64 hex characters - this might be half a key or in wrong format
+//         console.log('📝 Detected 64-char hex format');
+//         throw new Error('Invalid Solana private key length. Solana private keys should be 128 hex characters (64 bytes) or a 64-element array.');
+//       } else if (privateKey.length >= 80 && privateKey.length <= 90) {
+//         // Try base58 format (typical Solana export format)
+//         console.log('📝 Attempting base58 decode for Solana key');
+//         try {
+//           secretKey = bs58.decode(privateKey);
+//           if (secretKey.length !== 64) {
+//             throw new Error(`Base58 decoded key has wrong length: ${secretKey.length} bytes`);
+//           }
+//         } catch (base58Error) {
+//           console.error('❌ Base58 decode failed:', base58Error.message);
+//           throw new Error('Invalid base58 private key format for Solana');
+//         }
+//       } else {
+//         // Unknown format
+//         throw new Error(`Unrecognized Solana private key format. Expected:
+//         - 128 hex characters (e.g., 1a2b3c4d...)
+//         - Base58 string (80-90 characters)
+//         - Array format [1,2,3...] with 64 numbers`);
+//       }
+      
+//       // Validate secret key length for Solana (should be 64 bytes)
+//       if (secretKey.length !== 64) {
+//         throw new Error(`Invalid Solana private key length: ${secretKey.length} bytes. Expected exactly 64 bytes.`);
+//       }
+      
+//       keypair = Keypair.fromSecretKey(secretKey);
+//       address = keypair.publicKey.toBase58();
+      
+//       console.log(`✅ Solana wallet imported successfully: ${address}`);
+      
+//     } else if (['ethereum', 'bsc', 'base', 'polygon', 'arbitrum'].includes(chain)) {
+//       // EVM wallet import logic
+//       const { ethers } = require('ethers');
+      
+//       // Check if this is encrypted data for EVM chains too
+//       if (privateKey.includes(':') && privateKey.split(':').length === 3) {
+//         console.log('🔍 Detected encrypted EVM private key - attempting to decrypt...');
+//         try {
+//           privateKey = this.decrypt(privateKey);
+//           console.log('✅ Successfully decrypted EVM private key');
+//         } catch (decryptError) {
+//           throw new Error('The provided private key appears to be encrypted but cannot be decrypted.');
+//         }
+//       }
+      
+//       // Clean and format EVM private key
+//       let formattedPrivateKey = privateKey.trim();
+//       if (!formattedPrivateKey.startsWith('0x')) {
+//         formattedPrivateKey = `0x${formattedPrivateKey}`;
+//       }
+      
+//       // Validate EVM private key format (64 hex chars + 0x prefix = 66 total)
+//       if (!/^0x[0-9a-fA-F]{64}$/.test(formattedPrivateKey)) {
+//         throw new Error(`Invalid EVM private key format for ${chain}. Expected 64 hex characters (with or without 0x prefix).`);
+//       }
+      
+//       const wallet = new ethers.Wallet(formattedPrivateKey);
+//       address = wallet.address;
+      
+//       console.log(`✅ EVM wallet imported on ${chain}: ${address}`);
+      
+//     } else {
+//       throw new Error(`Unsupported chain: ${chain}`);
+//     }
+
+//     // Fetch wallet balance
+//     let balanceInfo;
+//     try {
+//       balanceInfo = await this.getWalletBalance(address, chain);
+//       console.log(`💰 Fetched balance: ${balanceInfo.balance} ${balanceInfo.symbol}`);
+//     } catch (balanceError) {
+//       console.warn('⚠️ Could not fetch wallet balance:', balanceError.message);
+//       balanceInfo = {
+//         balance: '0.000000',
+//         usdValue: '0.00',
+//         symbol: chain === 'solana' ? 'SOL' : 'ETH'
+//       };
+//     }
+
+//     // Load user data and prepare wallet storage
+//     const userData = await userService.getUserSettings(userId);
+//     if (!userData.custodialWallets) {
+//       userData.custodialWallets = {};
+//     }
+//     if (!userData.custodialWallets[chain]) {
+//       userData.custodialWallets[chain] = [];
+//     }
+
+//     // Check if wallet already exists
+//     const existingWallets = userData.custodialWallets[chain];
+//     const existingIndex = existingWallets.findIndex(w => w.address === address);
+    
+//     if (existingIndex !== -1) {
+//       console.log(`ℹ️ Wallet already exists at index ${existingIndex}`);
+//       return {
+//         success: true,
+//         address,
+//         chain,
+//         balance: balanceInfo.balance,
+//         usdValue: balanceInfo.usdValue,
+//         symbol: balanceInfo.symbol,
+//         walletIndex: existingIndex,
+//         name: existingWallets[existingIndex].name || `Wallet ${existingIndex + 1}`,
+//         message: `Wallet already exists and is ready to use!`
+//       };
+//     }
+
+//     // **ENCRYPT THE RAW PRIVATE KEY BEFORE STORING**
+//     const encryptedPrivateKey = this.encrypt(privateKey);
+//     console.log('🔒 Private key encrypted successfully for storage');
+
+//     // Create new wallet entry
+//     const newWallet = {
+//       address,
+//       privateKey: encryptedPrivateKey, // Store ENCRYPTED private key
+//       mnemonic: null, // No mnemonic for imported wallets
+//       createdAt: new Date().toISOString(),
+//       imported: true,
+//       importedAt: new Date().toISOString(),
+//       balance: parseFloat(balanceInfo.balance || 0),
+//       totalReceived: 0,
+//       totalSent: 0,
+//       txCount: 0,
+//       lastUpdated: new Date().toISOString(),
+//       isDefault: existingWallets.length === 0, // First wallet becomes default
+//       name: `Imported Wallet ${existingWallets.length + 1}`
+//     };
+
+//     // Add to wallets array
+//     userData.custodialWallets[chain].push(newWallet);
+//     await userService.saveUserData(userId, userData);
+    
+//     console.log(`✅ Wallet imported and saved successfully for user ${userId}`);
+
+//     return {
+//       success: true,
+//       address,
+//       chain,
+//       balance: balanceInfo.balance,
+//       usdValue: balanceInfo.usdValue,
+//       symbol: balanceInfo.symbol,
+//       walletIndex: userData.custodialWallets[chain].length - 1,
+//       name: newWallet.name,
+//       message: `Wallet imported successfully on ${chain.toUpperCase()}!`
+//     };
+
+//   } catch (error) {
+//     console.error('❌ Import wallet error:', error);
+    
+//     // Provide more specific error messages
+//     if (error.message.includes('Invalid') || error.message.includes('Expected')) {
+//       throw new Error(`${error.message}`);
+//     } else if (error.message.includes('encrypted') || error.message.includes('decrypt')) {
+//       throw new Error(`Encryption issue: ${error.message}`);
+//     } else if (error.message.includes('Unsupported chain')) {
+//       throw new Error(error.message);
+//     } else {
+//       throw new Error(`Failed to import wallet: ${error.message}`);
+//     }
+//   }
+// }
+
+// // async importWallet(userId, privateKey, chain = 'solana') {
+// //   let keypair, address;
+// //   try {
+// //     console.log(`🔐 Importing wallet for user ${userId} on chain: ${chain}`);
+    
+// //     if (chain === 'solana') {
+// //       const { Keypair } = require('@solana/web3.js');
+// //       const bs58 = require('bs58');
+// //       let secretKey;
+      
+// //       // Handle different private key formats
+// //       if (privateKey.startsWith('[')) {
+// //         // Array format: [123, 45, 67, ...]
+// //         console.log('📝 Detected array format private key');
+// //         const arr = JSON.parse(privateKey);
+// //         secretKey = Uint8Array.from(arr);
+// //       } else if (/^[0-9a-fA-F]{128}$/.test(privateKey)) {
+// //         // Hex format: 128 hex characters
+// //         console.log('📝 Detected hex format private key');
+// //         secretKey = Uint8Array.from(Buffer.from(privateKey, 'hex'));
+// //       } else if (/^[0-9a-fA-F]{64}$/.test(privateKey)) {
+// //         // 64 hex characters (might need padding or conversion)
+// //         console.log('📝 Detected 64-char hex format, attempting conversion');
+// //         // This might be incomplete - Solana needs 64 bytes (128 hex chars)
+// //         throw new Error('Invalid Solana private key length. Expected 128 hex characters or 64-byte array.');
+// //       } else {
+// //         // Try base58 format
+// //         console.log('📝 Attempting base58 decode');
+// //         try {
+// //           secretKey = bs58.decode(privateKey);
+// //         } catch (base58Error) {
+// //           // If base58 fails, try as raw hex
+// //           console.log('📝 Base58 failed, trying raw hex interpretation');
+// //           secretKey = Uint8Array.from(Buffer.from(privateKey, 'hex'));
+// //         }
+// //       }
+      
+// //       // Validate secret key length for Solana (should be 64 bytes)
+// //       if (secretKey.length !== 64) {
+// //         throw new Error(`Invalid Solana private key length: ${secretKey.length} bytes. Expected 64 bytes.`);
+// //       }
+      
+// //       keypair = Keypair.fromSecretKey(secretKey);
+// //       address = keypair.publicKey.toBase58();
+      
+// //       console.log(`✅ Solana wallet imported: ${address}`);
+      
+// //     } else if (['ethereum', 'bsc', 'base', 'polygon', 'arbitrum'].includes(chain)) {
+// //       // EVM wallet import logic
+// //       const { ethers } = require('ethers');
+      
+// //       // Ensure private key has 0x prefix for EVM
+// //       const formattedPrivateKey = privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`;
+      
+// //       // Validate EVM private key format (64 hex chars + 0x prefix)
+// //       if (!/^0x[0-9a-fA-F]{64}$/.test(formattedPrivateKey)) {
+// //         throw new Error('Invalid EVM private key format. Expected 64 hex characters.');
+// //       }
+      
+// //       const wallet = new ethers.Wallet(formattedPrivateKey);
+// //       address = wallet.address;
+      
+// //       console.log(`✅ EVM wallet imported on ${chain}: ${address}`);
+      
+// //     } else {
+// //       throw new Error(`Unsupported chain: ${chain}`);
+// //     }
+
+// //     // Fetch wallet stats to get current balance
+// //     let balanceInfo;
+// //     try {
+// //       balanceInfo = await this.getWalletBalance(address, chain);
+// //       console.log(`💰 Fetched balance: ${balanceInfo.balance}`);
+// //     } catch (balanceError) {
+// //       console.warn('⚠️ Could not fetch wallet balance:', balanceError.message);
+// //       balanceInfo = {
+// //         balance: 0,
+// //         totalReceived: 0,
+// //         totalSent: 0,
+// //         txCount: 0
+// //       };
+// //     }
+
+// //     // **ENCRYPT THE PRIVATE KEY BEFORE STORING**
+// //     const encryptedPrivateKey = this.encrypt(privateKey);
+// //     console.log('🔒 Private key encrypted successfully');
+
+// //     // Load existing user data
+// //     const userData = await userService.getUserSettings(userId);
+// //     if (!userData.custodialWallets) {
+// //       userData.custodialWallets = {};
+// //     }
+
+// //     // Store the wallet with encrypted private key
+// //     userData.custodialWallets[chain] = {
+// //       address,
+// //       privateKey: encryptedPrivateKey, // Store ENCRYPTED private key
+// //       mnemonic: null, // No mnemonic for imported wallets
+// //       createdAt: new Date().toISOString(),
+// //       imported: true, // Flag to indicate this was imported
+// //       importedAt: new Date().toISOString(),
+// //       balance: parseFloat(balanceInfo.balance || 0),
+// //       totalReceived: balanceInfo.totalReceived || 0,
+// //       totalSent: balanceInfo.totalSent || 0,
+// //       txCount: balanceInfo.txCount || 0,
+// //       lastUpdated: new Date().toISOString()
+// //     };
+
+// //     // Save the updated user data
+// //     await userService.saveUserData(userId, userData);
+    
+// //     console.log(`✅ Wallet imported and saved successfully for user ${userId}`);
+
+// //     return {
+// //       success: true,
+// //       address,
+// //       chain,
+// //       balance: balanceInfo.balance || 0,
+// //       totalReceived: balanceInfo.totalReceived || 0,
+// //       totalSent: balanceInfo.totalSent || 0,
+// //       txCount: balanceInfo.txCount || 0,
+// //       message: `Wallet imported successfully on ${chain.toUpperCase()}`
+// //     };
+
+// //   } catch (error) {
+// //     console.error('❌ Import wallet error:', error);
+    
+// //     // Provide more specific error messages
+// //     if (error.message.includes('Invalid') || error.message.includes('Expected')) {
+// //       throw new Error(`Invalid private key format: ${error.message}`);
+// //     } else if (error.message.includes('Unsupported chain')) {
+// //       throw new Error(error.message);
+// //     } else {
+// //       throw new Error(`Failed to import wallet: ${error.message}`);
+// //     }
+// //   }
+// // }
+
+// // ...existing code...
+//   // Generate fresh wallet for users with decryption issues
+//   async regenerateWallet(userId, chain) {
+//     try {
+//       console.log(`🔄 Regenerating wallet for user ${userId}, chain: ${chain}`);
+      
+//       const userData = await userService.getUserSettings(userId);
+      
+//       // Generate new wallet
+//       let newWallet;
+//       if (chain === 'solana') {
+//         newWallet = this.generateSolanaWallet();
+//       } else if (['ethereum', 'bsc', 'polygon', 'arbitrum', 'base'].includes(chain)) {
+//         newWallet = this.generateEVMWallet();
+//       } else {
+//         throw new Error(`Unsupported chain: ${chain}`);
+//       }
+      
+//       // Encrypt and store the new wallet
+//       const encryptedPrivateKey = this.encrypt(newWallet.privateKey);
+//       const encryptedMnemonic = newWallet.mnemonic ? this.encrypt(newWallet.mnemonic) : null;
+      
+//       // Save new wallet info
+//       if (!userData.custodialWallets) {
+//         userData.custodialWallets = {};
+//       }
+      
+//       userData.custodialWallets[chain] = {
+//         address: newWallet.address,
+//         privateKey: encryptedPrivateKey,
+//         mnemonic: encryptedMnemonic,
+//         createdAt: new Date().toISOString(),
+//         regenerated: true,
+//         regeneratedAt: new Date().toISOString(),
+//         balance: 0,
+//         totalReceived: 0,
+//         totalSent: 0,
+//         txCount: 0,
+//         lastUpdated: new Date().toISOString()
+//       };
+      
+//       await userService.saveUserData(userId, userData);
+      
+//       console.log(`✅ Regenerated ${chain} wallet for user ${userId}:`, newWallet.address);
+      
+//       // Get initial balance
+//       const balanceInfo = await this.getWalletBalance(newWallet.address, chain);
+      
+//       return {
+//         success: true,
+//         address: newWallet.address,
+//         mnemonic: newWallet.mnemonic,
+//         regenerated: true,
+//         balance: balanceInfo.balance,
+//         symbol: balanceInfo.symbol,
+//         usdValue: balanceInfo.usdValue,
+//         message: 'Fresh wallet created successfully!'
+//       };
+      
+//     } catch (error) {
+//       console.error('Regenerate wallet error:', error);
+//       throw error;
+//     }
+//   }
+
+//   async detectChainFromAddress(address) {
+//   if (!address || typeof address !== "string") {
+//     return "Invalid address";
+//   }
+
+//   // Ethereum + all EVM chains
+//   if (/^0x[a-fA-F0-9]{40}$/.test(address)) {
+//     return "EVM (Ethereum, Polygon, BSC, Arbitrum, Optimism, etc.)";
+//   }
+
+//   // Solana (Base58, length 32-44)
+//   if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address)) {
+//     return "Solana";
+//   }
+
+//   // Bitcoin Legacy
+//   if (/^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$/.test(address)) {
+//     return "Bitcoin (Legacy)";
+//   }
+
+//   // Bitcoin Bech32 (SegWit)
+//   if (/^(bc1)[a-z0-9]{25,39}$/.test(address)) {
+//     return "Bitcoin (SegWit)";
+//   }
+
+//   // Add more heuristics for other chains as needed
+//   return "Unknown / Unsupported";
+// }
+
+// // Examples
+// // console.log(detectChainFromAddress("0x742d35Cc6634C0532925a3b844Bc454e4438f44e")); // EVM
+// // console.log(detectChainFromAddress("H3V2i6G9E3Zmv92Tx2aYz6vNZtKcTNNWUnwxhWptW1P3")); // Solana
+// // console.log(detectChainFromAddress("bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq")); // Bitcoin
+
+//   // Get wallet info for UI display
+//   async getWalletInfo(userId, chain) {
+//     try {
+//       const userData = await userService.getUserSettings(userId);
+      
+//       if (!userData.custodialWallets || !userData.custodialWallets[chain]) {
+//         throw new Error(`No ${chain} wallet found for user ${userId}`);
+//       }
+      
+//       const wallet = userData.custodialWallets[chain];
+//       const address = wallet.address;
+      
+//       // Get balance
+//       const balanceInfo = await this.getWalletBalance(address, chain);
+      
+//       return {
+//         address,
+//         balance: balanceInfo.balance,
+//         usdValue: balanceInfo.usdValue,
+//         symbol: balanceInfo.symbol,
+//         createdAt: wallet.createdAt,
+//         lastUpdated: new Date().toISOString(),
+//         txCount: wallet.txCount || 0,
+//         totalSent: wallet.totalSent || 0,
+//         totalReceived: wallet.totalReceived || 0
+//       };
+      
+//     } catch (error) {
+//       console.error('Get wallet info error:', error);
+//       throw error;
+//     }
+//   }
+
+//   // Refresh wallet data
+//   async refreshWalletData(userId, chain) {
+//     try {
+//       const userData = await userService.getUserSettings(userId);
+      
+//       if (!userData.custodialWallets || !userData.custodialWallets[chain]) {
+//         throw new Error(`No ${chain} wallet found for user ${userId}`);
+//       }
+      
+//       const wallet = userData.custodialWallets[chain];
+//       const address = wallet.address;
+      
+//       // Clear cache
+//       this.clearCache('balance', `balance_${chain}_${address}`);
+      
+//       // Get fresh balance
+//       const balanceInfo = await this.getWalletBalance(address, chain);
+      
+//       // Update wallet data
+//       wallet.lastUpdated = new Date().toISOString();
+//       await userService.saveUserData(userId, userData);
+      
+//       return {
+//         success: true,
+//         address,
+//         balance: balanceInfo.balance,
+//         usdValue: balanceInfo.usdValue,
+//         symbol: balanceInfo.symbol,
+//         lastUpdated: new Date().toISOString()
+//       };
+      
+//     } catch (error) {
+//       console.error('Refresh wallet data error:', error);
+//       return {
+//         success: false,
+//         error: error.message
+//       };
+//     }
+//   }
+// }
+
+// // Create singleton instance
+// const walletService = new WalletService();
+
+// module.exports = {
+//   getOrCreateWallet: walletService.getOrCreateWallet.bind(walletService),
+//   createNewWallet: walletService.createNewWallet.bind(walletService),
+//   getWalletByIndex: walletService.getWalletByIndex.bind(walletService),
+//   setDefaultWallet: walletService.setDefaultWallet.bind(walletService),
+//   getWalletBalance: walletService.getWalletBalance.bind(walletService),
+//   getWalletPrivateKeyForTrading: walletService.getWalletPrivateKeyForTrading.bind(walletService),
+//   processTransactionWithFee: walletService.processTransactionWithFee.bind(walletService),
+//   exportWalletInfo: walletService.exportWalletInfo.bind(walletService),
+//   sendNativeTokens: walletService.sendNativeTokens.bind(walletService),
+//   getStatus: walletService.getStatus.bind(walletService),
+//   clearCache: walletService.clearCache.bind(walletService),
+//   handleDecryptionFailure: walletService.handleDecryptionFailure.bind(walletService),
+//   importWallet: walletService.importWallet.bind(walletService),
+//   regenerateWallet: walletService.regenerateWallet.bind(walletService),
+//   detectChainFromAddress: walletService.detectChainFromAddress.bind(walletService),
+//   getWalletInfo: walletService.getWalletInfo.bind(walletService),
+//   refreshWalletData: walletService.refreshWalletData.bind(walletService),
+//     decrypt: walletService.decrypt.bind(walletService),
+//     createJupiterWalletAdapter: walletService.createJupiterWalletAdapter.bind(walletService)
+
+// };
+
+

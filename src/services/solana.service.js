@@ -1,3 +1,29 @@
+// Fetch a Solana transaction by signature using the centralized rpcManager
+async function getTx(signature) {
+  try {
+    return await rpcManager.executeWithRetry('solana', async (connection) => {
+      return await connection.getTransaction(signature, {
+        commitment: 'confirmed',
+        maxSupportedTransactionVersion: 0
+      });
+    }, 3);
+  } catch (err) {
+    console.warn(`⚠️ getTx failed for ${signature}: ${err.message}`);
+    return null;
+  }
+}
+
+// Fetch recent transaction signatures for a Solana address (leader)
+async function getRecentSignatures(leader, before = null, limit = 20) {
+  const publicKey = new PublicKey(leader);
+  // Use the centralized rpcManager for robust connection handling
+  return await rpcManager.executeWithRetry('solana', async (connection) => {
+    const opts = { limit };
+    if (before) opts.before = before;
+    return await connection.getSignaturesForAddress(publicKey, opts);
+  }, 3);
+}
+
 const { Connection, Keypair, PublicKey, SystemProgram, Transaction, sendAndConfirmTransaction } = require('@solana/web3.js');
 const { getOrCreateAssociatedTokenAccount, transfer: splTransfer, getAssociatedTokenAddress } = require('@solana/spl-token');
 const LeaderStateSOL = require('../models/LeaderState');
@@ -7,8 +33,12 @@ const bs58 = require('bs58');
 
 const WSOL_MINT = 'So11111111111111111111111111111111111111112';
 
-const SOL_RPC = process.env.QUICKNODE_SOL_RPC; // https://...quiknode.pro/.../
-const connection = new Connection(SOL_RPC, 'confirmed');
+const { getRPCManager } = require('../../services/rpcManager');
+
+// NOTE: Do not create a static Connection here; use the centralized RPC manager
+// which provides failover, retries and health checks. Calls below request a
+// healthy connection per-call via rpcManager.executeWithRetry.
+const rpcManager = getRPCManager();
 
 function parseKeypairFromSecret(secretStr) {
   // Accept: base58-encoded secret, or JSON array (Uint8Array)
@@ -33,34 +63,67 @@ async function loadFollowerSolKeypair(user) {
 }
 
 function decodeSystemTransferFromCompiledIx(ci, accountKeys) {
-  // ci: CompiledInstruction { programIdIndex, accounts, data (base64) }
+  // ci: CompiledInstruction { programIdIndex, accountKeyIndexes, data (Buffer) }
+  if (!ci || !Array.isArray(ci.accountKeyIndexes) || ci.accountKeyIndexes.length < 2) return null;
+  if (!accountKeys || typeof ci.programIdIndex !== 'number' || !accountKeys[ci.programIdIndex]) return null;
   const programId = accountKeys[ci.programIdIndex];
   if (!programId.equals(SystemProgram.programId)) return null;
 
-  const data = Buffer.from(ci.data, 'base64');
-  // SystemInstruction enum (u32 LE)
+  // If data is already a Buffer, use it directly
+  const data = Buffer.isBuffer(ci.data) ? ci.data : Buffer.from(ci.data, 'base64');
   if (data.length < 4) return null;
   const opcode = data.readUInt32LE(0);
 
-  // 2 = Transfer, 12 = TransferWithSeed
   if (opcode === 2) {
-    // layout: u32 opcode, u64 lamports
-    if (data.length < 4 + 8) return null;
+    if (data.length < 12) return null;
+    if (ci.accountKeyIndexes.length < 2) return null;
     const lamports = Number(data.readBigUInt64LE(4));
-    const from = accountKeys[ci.accounts[0]];
-    const to   = accountKeys[ci.accounts[1]];
+    const from = accountKeys[ci.accountKeyIndexes[0]];
+    const to = accountKeys[ci.accountKeyIndexes[1]];
     return { kind: 'transfer', from, to, lamports };
   } else if (opcode === 12) {
-    // TransferWithSeed layout: u32 opcode, u64 lamports, base(32), seed(string), owner(pubkey)
-    // Accounts: [fromBase, to, fromWithSeedBase?] — varies; safest to read accounts[0]=fromBase, accounts[1]=to
-    if (data.length < 4 + 8) return null;
+    if (data.length < 12) return null;
+    if (ci.accountKeyIndexes.length < 2) return null;
     const lamports = Number(data.readBigUInt64LE(4));
-    const fromBase = accountKeys[ci.accounts[0]];
-    const to       = accountKeys[ci.accounts[1]];
+    const fromBase = accountKeys[ci.accountKeyIndexes[0]];
+    const to = accountKeys[ci.accountKeyIndexes[1]];
     return { kind: 'transferWithSeed', from: fromBase, to, lamports };
   }
   return null;
 }
+// function decodeSystemTransferFromCompiledIx(ci, accountKeys) {
+//   // ci: CompiledInstruction { programIdIndex, accounts, data (base64) }
+//   if (!ci || !Array.isArray(ci.accounts) || ci.accounts.length < 2) return null;
+//   if (!accountKeys || typeof ci.programIdIndex !== 'number' || !accountKeys[ci.programIdIndex]) return null;
+//   const programId = accountKeys[ci.programIdIndex];
+//   if (!programId.equals(SystemProgram.programId)) return null;
+
+//   const data = Buffer.from(ci.data, 'base64');
+//   // SystemInstruction enum (u32 LE)
+//   if (data.length < 4) return null;
+//   const opcode = data.readUInt32LE(0);
+
+//   // 2 = Transfer, 12 = TransferWithSeed
+//   if (opcode === 2) {
+//     // layout: u32 opcode, u64 lamports
+//     if (data.length < 4 + 8) return null;
+//     if (ci.accounts.length < 2) return null;
+//     const lamports = Number(data.readBigUInt64LE(4));
+//     const from = accountKeys[ci.accounts[0]];
+//     const to = accountKeys[ci.accounts[1]];
+//     return { kind: 'transfer', from, to, lamports };
+//   } else if (opcode === 12) {
+//     // TransferWithSeed layout: u32 opcode, u64 lamports, base(32), seed(string), owner(pubkey)
+//     // Accounts: [fromBase, to, fromWithSeedBase?] — varies; safest to read accounts[0]=fromBase, accounts[1]=to
+//     if (data.length < 4 + 8) return null;
+//     if (ci.accounts.length < 2) return null;
+//     const lamports = Number(data.readBigUInt64LE(4));
+//     const fromBase = accountKeys[ci.accounts[0]];
+//     const to = accountKeys[ci.accounts[1]];
+//     return { kind: 'transferWithSeed', from: fromBase, to, lamports };
+//   }
+//   return null;
+// }
 
 // From a confirmed tx, extract SOL transfers where leader is the sender.
 function extractLeaderSolTransfers(tx, leaderPubkey) {
@@ -79,7 +142,8 @@ function extractLeaderSolTransfers(tx, leaderPubkey) {
 }
 
 // Use token balance diffs to infer SPL transfers made by leader (robust to inner ixs)
-function extractLeaderSplTransfers(tx, leaderPubkey) {
+async function extractLeaderSplTransfers(tx, leaderPubkey) {
+  try {
   const leaderStr = leaderPubkey.toBase58();
   const pre = tx.meta?.preTokenBalances || [];
   const post = tx.meta?.postTokenBalances || [];
@@ -132,46 +196,83 @@ function extractLeaderSplTransfers(tx, leaderPubkey) {
   }
 
   const results = [];
-  for (const d of decreases) {
-    const incs = increasesByMint.get(d.mint) || [];
-    if (incs.length === 0) continue;
-    // Pick the largest increase as likely counterparty
-    incs.sort((a, b) => (b.amount > a.amount ? 1 : -1));
-    const { owner, mint, amount, decimals } = incs[0];
-    const raw = amount < d.amount ? amount : d.amount; // guard
-    results.push({ mint, toOwner: owner, rawAmount: raw, decimals });
+  const TradeLog = require('../models/TradeLog');
+  for (const s of newOnes.reverse()) {
+    const tx = await getTx(s.signature);
+    console.log(`tx`)
+    console.log(tx)
+    if (!tx) continue;
+
+    // Extract trade details (example for swap, adapt as needed)
+    const leaderTx = s.signature;
+    const chain = 'SOL';
+    const tokenIn = '...'; // Fill with actual logic
+    const tokenOut = '...'; // Fill with actual logic
+    const amountIn = '...'; // Fill with actual logic
+    const amountOutMin = '...'; // Fill with actual logic
+    const idempotencyKey = `${chain}:${leaderTx}`;
+
+    // Check if TradeLog already exists (idempotency)
+    let logDoc = await TradeLog.findOne({ idempotencyKey });
+    if (!logDoc) {
+      logDoc = await TradeLog.create({
+        chain,
+        leader,
+        leaderTx,
+        tokenIn,
+        tokenOut,
+        amountIn: String(amountIn),
+        amountOutMin: String(amountOutMin),
+        parsedAt: new Date(),
+        idempotencyKey,
+        followers: followers.map(f => ({
+          userId: f.userId,
+          status: 'QUEUED'
+        }))
+      });
+    }
+
+    // Notify only followers whose status is QUEUED
+    for (const f of followers.filter(x => x.active)) {
+      const user = await UserSOL.findById(f.userId).lean();
+      if (!user) continue;
+      const followerEntry = logDoc.followers.find(fl => fl.userId.toString() === f.userId.toString());
+      if (!followerEntry || followerEntry.status !== 'QUEUED') continue;
+
+      await botInstance.telegram.sendMessage(
+        user.tgId,
+        `🔔 Trade detected for leader ${leader}.\nDo you want to copy this trade?\n\nDetails:\n• Token: ${tokenIn}\n• Amount: ${amountIn}\n• Type: ...`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: '✅ Accept', callback_data: `copytrade_accept_${logDoc._id}` },
+                { text: '❌ Decline', callback_data: `copytrade_decline_${logDoc._id}` }
+              ]
+            ]
+          }
+        }
+      );
+    }
+    // Remove direct execution:
+    // await mirrorSolTxAsSwap(leader, tx, followers);
+    return tx;
   }
-  return results;
-}
-
-async function ensureStateSOL(leader) {
-let s = await LeaderStateSOL.findOne({ chain: 'SOL', leader });
-if (!s) s = await LeaderStateSOL.create({ chain: 'SOL', leader });
-console.log(`leader state sol ${s}`)
-return s;
-}
-
-
-async function getRecentSignatures(address, before = null, limit = 20) {
-    console.log(`address ${address} for signature`)
-    var signatures = await connection.getSignaturesForAddress(new PublicKey(address), { before, limit });
-    console.log(`signatures: ${signatures}`)
-return signatures;
-}
-
-
-async function getTx(signature) {
-return await connection.getTransaction(signature, { maxSupportedTransactionVersion: 0 });
+    
+  } catch (err) {
+    console.warn(`⚠️ getTx failed for ${signature}: ${err.message}`);
+    return null;
+  }
 }
 
 
 function isSystemTransfer(ix, message) {
-return ix.programId.equals(SystemProgram.programId) && message.instructions.includes(ix);
+  return ix.programId.equals(SystemProgram.programId) && message.instructions.includes(ix);
 }
 
 
 function isTokenProgramIx(ix) {
-return ix.programId.toBase58() === 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
+  return ix.programId.toBase58() === 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
 }
 
 
@@ -361,8 +462,12 @@ async function sendBase64TxViaQuickNode(base64Txn, signerKP) {
   const raw = Buffer.from(base64Txn, 'base64');
   const vtx = VersionedTransaction.deserialize(raw);
   vtx.sign([signerKP]);
-  const sig = await connection.sendTransaction(vtx, { skipPreflight: false, preflightCommitment: 'confirmed' });
-  await connection.confirmTransaction(sig, 'confirmed');
+  // Use RPC manager to pick healthy endpoint and perform send + confirm with retries
+  const sig = await rpcManager.executeWithRetry('solana', async (rpc) => {
+    const s = await rpc.sendTransaction(vtx, { skipPreflight: false, preflightCommitment: 'confirmed' });
+    await rpc.confirmTransaction(s, 'confirmed');
+    return s;
+  }, 4);
   return sig;
 }
 
@@ -545,38 +650,241 @@ async function mirrorSolTxAsSwap(leader, tx, followers, defaultSlippageBps = 50)
   }
 }
 
-async function pollSolLeader(leader, followers) {
-    console.log("start ensure sol state")
-const state = await ensureStateSOL(leader);
-    console.log("getRecentSignatures")
+const TradeLog = require('../models/TradeLog');
 
-const sigs = await getRecentSignatures(leader, null, 20);
-if (!sigs || sigs.length === 0) return;
-console.log('signatures')
-console.log(sigs)
+async function pollSolLeader(leader, followers, botInstance) {
+  console.log("start ensure sol state");
+  const state = await ensureStateSOL(leader);
+  console.log("getRecentSignatures");
 
-const last = state.lastSignature;
-console.log(`last is: ${last}`)
-let newOnes = sigs;
-if (last) {
-const idx = sigs.findIndex(s => s.signature === last);
-if (idx >= 0) newOnes = sigs.slice(0, idx+1); // newer than last
+  const sigs = await getRecentSignatures(leader, null, 20);
+  if (!sigs || sigs.length === 0) return;
+  console.log('signatures');
+  console.log(sigs);
+
+  const last = state.lastSignature;
+  console.log(`last is: ${last}`);
+  let newOnes = sigs;
+  if (last) {
+    const idx = sigs.findIndex(s => s.signature === last);
+    if (idx >= 0) newOnes = sigs.slice(0, idx + 1); // newer than last
+  }
+
+  console.log("start processing oldest-first");
+  // Process oldest-first
+  for (const s of newOnes.reverse()) {
+    const tx = await getTx(s.signature);
+    console.log(`tx`);
+    console.log(tx);
+    if (!tx) continue;
+
+
+    // Extract trade details from the tx object
+    const leaderTx = s.signature;
+    const chain = 'SOL';
+    let tokenIn = 'Unknown', tokenOut = 'Unknown', amountIn = 'Unknown', amountOutMin = 'Unknown';
+    const leaderPubkey = new PublicKey(leader);
+    debugger
+    const swap = detectLeaderSwap(tx, leaderPubkey);
+    debugger
+    let solTransfers;
+    if (swap) {
+      tokenIn = swap.inputMint;
+      tokenOut = swap.outputMint;
+      amountIn = swap.inputRaw.toString();
+      amountOutMin = swap.outputRaw.toString();
+    } else {
+      debugger
+      // Fallback: try to extract a simple SOL transfer
+      solTransfers = extractLeaderSolTransfers(tx, leaderPubkey);
+      debugger
+
+      if (solTransfers.length > 0) {
+        tokenIn = 'SOL';
+        tokenOut = solTransfers.map(t => t.to.toBase58()).join(', ');
+        amountIn = solTransfers.map(t => t.lamports).join(', ');
+        amountOutMin = '0';
+      } else {
+        // As a last resort, try to extract SOL sent from leader's account (native transfer)
+        try {
+          const message = tx.transaction?.message;
+              debugger
+
+          const accountKeys = message?.getAccountKeys?.().staticAccountKeys;
+              debugger
+
+          if (message && accountKeys) {
+            for (const ci of message.compiledInstructions || []) {
+              if (ci && Array.isArray(ci.accounts) && ci.accounts.length >= 2) {
+                const from = accountKeys[ci.accounts[0]];
+                const to = accountKeys[ci.accounts[1]];
+                    debugger
+
+                if (from && from.equals(leaderPubkey)) {
+                  tokenIn = 'SOL';
+                  tokenOut = to?.toBase58?.() || 'Unknown';
+                  // Try to get lamports from instruction data
+                  const data = Buffer.from(ci.data, 'base64');
+                      debugger
+
+                  if (data.length >= 12) {
+                    amountIn = data.readBigUInt64LE(4).toString();
+                  } else {
+                    amountIn = 'Unknown';
+                  }
+                  amountOutMin = '0';
+                  break;
+                }
+              }
+            }
+          }
+        } catch (err) {
+          console.warn('Fallback SOL extraction failed:', err?.message || err);
+        }
+        // If still unknown, log for debugging
+        if (tokenIn === 'Unknown' && tokenOut === 'Unknown') {
+          console.warn('[Trade Extraction] Could not extract trade details for tx:', s.signature);
+        }
+      }
+    }
+    const idempotencyKey = `${chain}:${leaderTx}`;
+
+    // Check if TradeLog already exists (idempotency)
+    let logDoc = await TradeLog.findOne({ idempotencyKey });
+        debugger
+
+    if (!logDoc) {
+      logDoc = await TradeLog.create({
+        chain,
+        leader,
+        leaderTx,
+        tokenIn,
+        tokenOut,
+        amountIn: String(amountIn),
+        amountOutMin: String(amountOutMin),
+        parsedAt: new Date(),
+        idempotencyKey,
+        followers: followers.map(f => ({
+          userId: f.userId,
+          status: 'QUEUED'
+        }))
+      });
+    }
+
+    // Notify only followers whose status is QUEUED
+    for (const f of followers.filter(x => x.active)) {
+      const user = await UserSOL.findById(f.userId).lean();
+      if (!user) continue;
+      const followerEntry = logDoc.followers.find(fl => fl.userId.toString() === f.userId.toString());
+      if (!followerEntry || followerEntry.status !== 'QUEUED') continue;
+
+      let type = 'Unknown';
+      if (swap) {
+        type = 'Swap';
+      } else if (solTransfers.length > 0) {
+        type = 'SOL Transfer';
+      } else if (tokenIn !== 'Unknown' && tokenIn !== 'SOL') {
+        type = 'Token Transfer';
+      }
+      await botInstance.telegram.sendMessage(
+        user.tgId,
+        `🔔 Trade detected for leader ${leader}.\nDo you want to copy this trade?\n\nDetails:\n• Token: ${tokenIn}\n• Amount: ${amountIn}\n• Type: ${type}`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: '✅ Accept', callback_data: `copytrade_accept_${logDoc._id}` },
+                { text: '❌ Decline', callback_data: `copytrade_decline_${logDoc._id}` }
+              ]
+            ]
+          }
+        }
+      );
+    }
+    // Do not execute the trade here; wait for user response.
+  }
+
+  debugger
+
+  state.lastSignature = sigs[0].signature;
+  await state.save();
+}
+// async function pollSolLeader(leader, followers, botInstance) {
+//   console.log("start ensure sol state")
+//   const state = await ensureStateSOL(leader);
+//   console.log("getRecentSignatures")
+
+//   const sigs = await getRecentSignatures(leader, null, 20);
+//   if (!sigs || sigs.length === 0) return;
+//   console.log('signatures')
+//   console.log(sigs)
+
+//   const last = state.lastSignature;
+//   console.log(`last is: ${last}`)
+//   let newOnes = sigs;
+//   if (last) {
+//     const idx = sigs.findIndex(s => s.signature === last);
+//     if (idx >= 0) newOnes = sigs.slice(0, idx + 1); // newer than last
+//   }
+
+//   console.log("start processing oldest-first")
+//   // Process oldest-first
+//   for (const s of newOnes.reverse()) {
+//     const tx = await getTx(s.signature);
+//     console.log(`tx`)
+//     console.log(tx)
+//     if (!tx) continue;
+
+//     // For each follower, send notification to accept/decline and collect custom params
+//     for (const f of followers.filter(x => x.active)) {
+//       const user = await UserSOL.findById(f.userId).lean();
+//       if (!user) continue;
+
+//       // Here, you would send a Telegram message to the follower (user.tgId)
+//       // with details of the detected trade and buttons to Accept/Decline.
+//       // On Accept, prompt for custom parameters (amount, slippage, etc.).
+//       // This requires botInstance and a handler for the response.
+
+//       // Example (pseudo-code):
+//       // await botInstance.telegram.sendMessage(user.tgId, `Trade detected for leader ${leader}. Accept or decline?`, { reply_markup: ... });
+//       // On Accept, store pending trade in session and prompt for parameters.
+//       // On parameter entry, save to DB or session, then execute copy trade for this user only.
+
+
+//       await botInstance.telegram.sendMessage(
+//         user.tgId,
+//         `🔔 Trade detected for leader ${leader}.\nDo you want to copy this trade?\n\nDetails:\n• Token: ...\n• Amount: ...\n• Type: ...`,
+//         {
+//           reply_markup: {
+//             inline_keyboard: [
+//               [
+//                 { text: '✅ Accept', callback_data: `copytrade_accept_${tradeId}` },
+//                 { text: '❌ Decline', callback_data: `copytrade_decline_${tradeId}` }
+//               ]
+//             ]
+//           }
+//         }
+//       );
+//       // For now, skip execution until user accepts and provides parameters.
+//       // You may want to store a pending trade log and process it in a handler.
+//     }
+//     // Remove direct execution:
+//     // await mirrorSolTxAsSwap(leader, tx, followers);
+//   }
+
+
+//   state.lastSignature = sigs[0].signature;
+//   await state.save();
+// }
+
+// Ensure a LeaderState document exists for the given SOL leader
+async function ensureStateSOL(leader) {
+  const LeaderState = require('../models/LeaderState');
+  let state = await LeaderState.findOne({ chain: 'SOL', leader });
+  if (!state) {
+    state = await LeaderState.create({ chain: 'SOL', leader });
+  }
+  return state;
 }
 
-console.log("start processing oldest-first")
-// Process oldest-first
-for (const s of newOnes.reverse()) {
-const tx = await getTx(s.signature);
-console.log(`tx`)
-console.log(tx)
-if (!tx) continue;
-// await mirrorSolTx(leader, tx, followers);
-await mirrorSolTxAsSwap(leader, tx, followers);
-}
-
-
-state.lastSignature = sigs[0].signature;
-await state.save();
-}
-
-module.exports = { pollSolLeader };
+module.exports = { pollSolLeader, ensureStateSOL, getRecentSignatures, getTx };

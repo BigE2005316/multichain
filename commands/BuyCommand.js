@@ -80,12 +80,12 @@ let args;
 
       // Validate chain and wallet
       //const wallet = await walletService.getUserWallet(userId, chain);
-      
-      const wallet = await walletService.getWalletInfo(userId, chain);
+      debugger
+      const wallet = await walletService.getWalletInfo(userId, chain, ctx.session.walletIndex);
       if (!wallet) {
         return ctx.reply(`❌ No ${chain.toUpperCase()} wallet found. Please create one with /wallet`);
       }
-
+      debugger
       // Show loading message
       const loadingMsg = await ctx.reply('🔍 Analyzing token and fetching comprehensive data...');
 
@@ -115,6 +115,9 @@ let args;
           tokenInfo: tokenInfo.data,
           tradeDetails,
           chain,
+          walletAddress: wallet.address,
+          buyWalletAddress: wallet.address,
+          walletIndex: ctx.session.walletIndex,
           timestamp: Date.now()
         });
 
@@ -360,7 +363,7 @@ async getComprehensiveTokenInfo(tokenAddress, chain = 'solana') {
   async executeBuyOrder(ctx, tradeData) {
     try {
       const loadingMsg = await ctx.reply('⚡ Executing buy order on blockchain...');
-      
+      debugger
       // Execute the trade using real trading executor
       // const result = await realTradingExecutor.executeBuy({
       //   userId: ctx.from.id,
@@ -375,7 +378,8 @@ async getComprehensiveTokenInfo(tokenAddress, chain = 'solana') {
         tokenAddress: tradeData.tokenInfo.address,
         amount: tradeData.tradeDetails.amount,
         slippage: tradeData.tradeDetails.slippage,
-        chain: tradeData.chain
+        chain: tradeData.chain,
+        walletAddress: tradeData.buyWalletAddress
       });
 
       this.botCore.clearSession(ctx);

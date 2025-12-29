@@ -2,8 +2,11 @@
 const { Connection, PublicKey } = require('@solana/web3.js');
 require('dotenv').config();
 
-const SOLANA_RPC = process.env.SOLANA_RPC || 'https://api.mainnet-beta.solana.com';
-const connection = new Connection(SOLANA_RPC, 'confirmed');
+const { getRPCManager } = require('./rpcManager');
+const rpcManager = getRPCManager();
+
+const SOLANA_RPC = process.env.SOLANA_RPC || process.env.HELIUS_RPC_URL || process.env.QUICKNODE_SOL_RPC || 'https://api.mainnet-beta.solana.com';
+rpcManager.addRPC('solana', SOLANA_RPC, 1);
 
 // 🛠️ Replace with your own logic for which wallets to watch
 const trackedWallets = [
@@ -21,12 +24,16 @@ async function pollSolanaWallets(onTrade) {
     for (const wallet of trackedWallets) {
       try {
         const publicKey = new PublicKey(wallet);
-        const signatures = await connection.getSignaturesForAddress(publicKey, { limit: 5 });
+        const signatures = await rpcManager.executeWithRetry('solana', async (rpc) => {
+          return await rpc.getSignaturesForAddress(publicKey, { limit: 5 });
+        }, 3);
 
         for (const sig of signatures) {
           if (!knownTxs.has(sig.signature)) {
             knownTxs.add(sig.signature);
-            const tx = await connection.getTransaction(sig.signature, { commitment: 'confirmed' });
+            const tx = await rpcManager.executeWithRetry('solana', async (rpc) => {
+              return await rpc.getTransaction(sig.signature, { commitment: 'confirmed' });
+            }, 3);
             if (tx) {
               // Notify trade
               await onTrade('solana', wallet, sig.signature, tx);

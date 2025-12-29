@@ -13,9 +13,13 @@ const { HeliusService } = require('./src/services/helius.service.js');
 const { seeder } = require('./src/services/seeder.js');
 const {startPollingLoop} = require('./src/services/copyOrchestrator.js')
 const User = require('./src/models/User');
+const CopyTradeHandlers = require('./CommandHandlers/CopyTradeHandlers');
+
 // const { startBot } = require('./bot/BotCore.js');
 const logger = require('./src/utils/logger.js');
 const WalletFollow = require('./src/models/WalletFollow');
+const WalletCommandHandlers = require('./CommandHandlers/WalletCommandHandlers');
+
 //const TPSLJob = require('./src/services/advancedTrading.service.js');
 const app = express();
 app.use(bodyParser.json());
@@ -46,6 +50,8 @@ class SmileSnipperBot {
     this.serviceManager = createServiceManager();
     this.botCore = null;
     this.initialized = false;
+    this.walletHandlers = new WalletCommandHandlers();
+
   }
 
   loadConfig() {
@@ -367,6 +373,10 @@ const connection = new Connection(
     // Register wallet management commands
     this.registerWalletCommands();
     
+    // Register copy trading handlers BEFORE registerCopyTradingCommands
+    const copyTradeHandlers = new CopyTradeHandlers();
+    copyTradeHandlers.registerHandlers(this.botCore);
+
     // Register copy trading commands
     this.registerCopyTradingCommands();
     
@@ -398,7 +408,7 @@ const connection = new Connection(
   debugger
   // Start TP/SL monitor
   const tpslMonitor = require('./src/services/tpslMonitorService.js');
-  await tpslMonitor.start();
+  //await tpslMonitor.start();
 debugger
     // Enhanced callback handlers for buy/sell confirmations
     this.botCore.registerCallbackHandler(/confirm_buy_(.+)/, async (ctx) => {
@@ -526,6 +536,9 @@ debugger
   }
 
   registerBasicCommands() {
+        // Add these handlers in your registerBasicCommands() method, after other callback handlers:
+    this.walletHandlers.registerHandlers(this.botCore);
+
     // Start command with comprehensive help
     this.botCore.registerCommand('start', async (ctx) => {
       await userService.updateLastActive(ctx.from.id);
@@ -594,8 +607,7 @@ Type /help to see all commands and start your trading journey!`,
          });
     });
 
-    // Add these handlers in your registerBasicCommands() method, after other callback handlers:
-
+ 
 // Buy token selection handlers
 this.botCore.registerCallbackHandler(/^select_buy_token_(\d+)$/, async (ctx) => {
   await this.handleBuyTokenSelection(ctx);
@@ -607,79 +619,79 @@ this.botCore.registerCallbackHandler(/^manual_buy_input_(.+)$/, async (ctx) => {
 });
 
     // Wallet menu handler
-this.botCore.registerCallbackHandler('wallet', async (ctx) => {
-  await ctx.reply(
-    `💼 **Wallet Menu**\n\nChoose an action:`,
-    {
-      parse_mode: 'Markdown',
-      reply_markup: {
-        inline_keyboard: [
-          [
-            { text: '📥 Get Wallet', callback_data: 'get_wallet' },
-            { text: '🆕 Create Wallet', callback_data: 'create_wallet' },
-            { text: '🔐 Export Wallet', callback_data: 'export_wallet' }
-          ],
-          [
-            { text: '💰 Check Balance', callback_data: 'wallet_balance' },
-            { text: '🔑 Import Wallet', callback_data: 'import_wallet' },
-            { text: '⬅️ Back', callback_data: 'main_menu' }
-          ]
-        ]
-      }
-    }
-  );
-});
+// this.botCore.registerCallbackHandler('wallet', async (ctx) => {
+//   await ctx.reply(
+//     `💼 **Wallet Menu**\n\nChoose an action:`,
+//     {
+//       parse_mode: 'Markdown',
+//       reply_markup: {
+//         inline_keyboard: [
+//           [
+//             { text: '📥 Get Wallet', callback_data: 'get_wallet' },
+//             { text: '🆕 Create Wallet', callback_data: 'create_wallet' },
+//             { text: '🔐 Export Wallet', callback_data: 'export_wallet' }
+//           ],
+//           [
+//             { text: '💰 Check Balance', callback_data: 'wallet_balance' },
+//             { text: '🔑 Import Wallet', callback_data: 'import_wallet' },
+//             { text: '⬅️ Back', callback_data: 'main_menu' }
+//           ]
+//         ]
+//       }
+//     }
+//   );
+// });
 
-// Get Wallet handler
-this.botCore.registerCallbackHandler('get_wallet', async (ctx) => {
-  console.log('/wallet command invoked');
-  const userSettings = await userService.getUserSettings(ctx.from.id);
-  const chain = userSettings?.chain || 'solana';
+// // Get Wallet handler
+// this.botCore.registerCallbackHandler('get_wallet', async (ctx) => {
+//   console.log('/wallet command invoked');
+//   const userSettings = await userService.getUserSettings(ctx.from.id);
+//   const chain = userSettings?.chain || 'solana';
 
-  try {
-    const wallet = await walletService.getOrCreateWallet(ctx.from.id, chain);
+//   try {
+//     const wallet = await walletService.getOrCreateWallet(ctx.from.id, chain);
 
-    let message = `💼 **Your ${chain.toUpperCase()} Wallet**\n\n`;
-    message += `📍 **Address:**\n\`${wallet.address}\`\n\n`;
-    message += `📍 **Private key:**\n\`${wallet.privateKey}\`\n\n`;
-    // Get balance
-    try {
-      const balanceInfo = await walletService.getWalletBalance(wallet.address, chain);
-      message += `💰 **Balance:** ${balanceInfo.balance} ${this.getChainSymbol(chain)}\n\n`;
-    } catch (balanceError) {
-      message += `💰 **Balance:** Unable to fetch\n\n`;
-    }
+//     let message = `💼 **Your ${chain.toUpperCase()} Wallet**\n\n`;
+//     message += `📍 **Address:**\n\`${wallet.address}\`\n\n`;
+//     message += `📍 **Private key:**\n\`${wallet.privateKey}\`\n\n`;
+//     // Get balance
+//     try {
+//       const balanceInfo = await walletService.getWalletBalance(wallet.address, chain);
+//       message += `💰 **Balance:** ${balanceInfo.balance} ${this.getChainSymbol(chain)}\n\n`;
+//     } catch (balanceError) {
+//       message += `💰 **Balance:** Unable to fetch\n\n`;
+//     }
 
-    message += `🔐 **Security:** AES-256 encrypted\n`;
-    message += `⚡ **Status:** Ready for trading\n\n`;
-    message += `**Next Steps:**\n`;
-    message += `• Send funds to address above\n`;
-    message += `• Use /balance to check balance\n`;
-    message += `• Use /buy to start trading`;
+//     message += `🔐 **Security:** AES-256 encrypted\n`;
+//     message += `⚡ **Status:** Ready for trading\n\n`;
+//     message += `**Next Steps:**\n`;
+//     message += `• Send funds to address above\n`;
+//     message += `• Use /balance to check balance\n`;
+//     message += `• Use /buy to start trading`;
 
-    await ctx.reply(message, { parse_mode: 'Markdown' });
-  } catch (error) {
-    await ctx.reply('❌ Failed to create/access wallet. Please try again.');
-  }
-});
+//     await ctx.reply(message, { parse_mode: 'Markdown' });
+//   } catch (error) {
+//     await ctx.reply('❌ Failed to create/access wallet. Please try again.');
+//   }
+// });
 
-// Create Wallet handler
-this.botCore.registerCallbackHandler('create_wallet', async (ctx) => {
-  const userSettings = await userService.getUserSettings(ctx.from.id);
-  const chain = userSettings?.chain || 'solana';
-  try {
-    //const wallet = await walletService.createNewWallet(ctx.from.id, chain);
-    //createNewWallet
-    const wallet = await walletService.getOrCreateWallet(ctx.from.id, chain);
-    await ctx.reply(
-      `🆕 **New ${chain.toUpperCase()} Wallet Created!**\n\`${wallet.address}\``,
-      { parse_mode: 'Markdown' }
-    );
-  } catch (error) {
-    console.error('Create wallet error:', error);
-    await ctx.reply('❌ Failed to create wallet. Please try again.');
-  }
-});
+// // Create Wallet handler
+// this.botCore.registerCallbackHandler('create_wallet', async (ctx) => {
+//   const userSettings = await userService.getUserSettings(ctx.from.id);
+//   const chain = userSettings?.chain || 'solana';
+//   try {
+//     //const wallet = await walletService.createNewWallet(ctx.from.id, chain);
+//     //createNewWallet
+//     const wallet = await walletService.getOrCreateWallet(ctx.from.id, chain);
+//     await ctx.reply(
+//       `🆕 **New ${chain.toUpperCase()} Wallet Created!**\n\`${wallet.address}\``,
+//       { parse_mode: 'Markdown' }
+//     );
+//   } catch (error) {
+//     console.error('Create wallet error:', error);
+//     await ctx.reply('❌ Failed to create wallet. Please try again.');
+//   }
+// });
 
 // Import Wallet handler
 // this.botCore.registerCallbackHandler('import_wallet', async (ctx) => {
@@ -734,91 +746,297 @@ this.botCore.registerCallbackHandler('create_wallet', async (ctx) => {
 // });
 
 // Register a dedicated text handler for import wallet flow
-this.botCore.registerTextHandler('awaitingImportPrivateKey', async (ctx) => {
-  ctx.session = ctx.session || {};
-  const privateKey = ctx.message.text.trim();
+// this.botCore.registerTextHandler('awaitingImportPrivateKey', async (ctx) => {
+//   ctx.session = ctx.session || {};
+//   const privateKey = ctx.message.text.trim();
 
-  if (!privateKey || privateKey.length < 32) {
-    await ctx.reply('❌ Invalid private key. Please try again or /cancel.');
-    return;
-  }
+//   if (!privateKey || privateKey.length < 32) {
+//     await ctx.reply('❌ Invalid private key. Please try again or /cancel.');
+//     return;
+//   }
 
-  try {
-    const userId = ctx.from.id;
-    const result = await walletService.importWallet(userId, privateKey);
+//   try {
+//     const userId = ctx.from.id;
+//     const result = await walletService.importWallet(userId, privateKey);
 
-    if (result && result.address) {
-      await ctx.reply(
-        `✅ **Wallet Imported Successfully!**\n\n` +
-        `📍 **Address:** \`${result.address}\`\n` +
-        `🔒 Your wallet is now available for trading.`,
-        { parse_mode: 'Markdown' }
-      );
-    } else {
-      await ctx.reply('❌ Failed to import wallet. Please check your private key and try again.');
-    }
-  } catch (error) {
-    await ctx.reply('❌ Error importing wallet: ' + error.message);
-  }
+//     if (result && result.address) {
+//       await ctx.reply(
+//         `✅ **Wallet Imported Successfully!**\n\n` +
+//         `📍 **Address:** \`${result.address}\`\n` +
+//         `🔒 Your wallet is now available for trading.`,
+//         { parse_mode: 'Markdown' }
+//       );
+//     } else {
+//       await ctx.reply('❌ Failed to import wallet. Please check your private key and try again.');
+//     }
+//   } catch (error) {
+//     await ctx.reply('❌ Error importing wallet: ' + error.message);
+//   }
 
-  ctx.session.awaitingImportPrivateKey = false;
-});
+//   ctx.session.awaitingImportPrivateKey = false;
+// });
 
-// In your import_wallet callback handler, set the session flag and handler:
-this.botCore.registerCallbackHandler('import_wallet', async (ctx) => {
-  ctx.session = ctx.session || {};
-  ctx.session.awaitingImportPrivateKey = true;
-  ctx.session.activeTextHandler = 'awaitingImportPrivateKey';
-  await ctx.reply(
-    `✍️ Please paste your **private key** below.\n\n` +
-    `⚠️ *Never share your private key with anyone else!*`,
-    { parse_mode: 'Markdown' }
-  );
-  await ctx.answerCbQuery();
-});
+// // In your import_wallet callback handler, set the session flag and handler:
+// this.botCore.registerCallbackHandler('import_wallet', async (ctx) => {
+//   ctx.session = ctx.session || {};
+//   ctx.session.awaitingImportPrivateKey = true;
+//   ctx.session.activeTextHandler = 'awaitingImportPrivateKey';
+//   await ctx.reply(
+//     `✍️ Please paste your **private key** below.\n\n` +
+//     `⚠️ *Never share your private key with anyone else!*`,
+//     { parse_mode: 'Markdown' }
+//   );
+//   await ctx.answerCbQuery();
+// });
 
-// Export Wallet handler
-this.botCore.registerCallbackHandler('export_wallet', async (ctx) => {
-  const userSettings = await userService.getUserSettings(ctx.from.id);
-  const chain = userSettings?.chain || 'solana';
-  try {
-    const wallet = await walletService.getWalletInfo(ctx.from.id, chain);
-    if (!wallet) {
-      return ctx.reply('❌ No wallet found. Create one first.');
-    }
-    // For security, you may want to send this only in a secure way!
-    await ctx.reply(
-      `🔐 **Export Wallet**\n\n*For security, never share your private key!*\n\n\`${wallet.privateKey || 'Not available'}\``,
-      { parse_mode: 'Markdown' }
-    );
-  } catch (error) {
-    await ctx.reply('❌ Failed to export wallet. Please try again.');
-  }
-});
+// // Export Wallet handler
+// this.botCore.registerCallbackHandler('export_wallet', async (ctx) => {
+//   const userSettings = await userService.getUserSettings(ctx.from.id);
+//   const chain = userSettings?.chain || 'solana';
+//   try {
+//     const wallet = await walletService.getWalletInfo(ctx.from.id, chain);
+//     if (!wallet) {
+//       return ctx.reply('❌ No wallet found. Create one first.');
+//     }
+//     // For security, you may want to send this only in a secure way!
+//     await ctx.reply(
+//       `🔐 **Export Wallet**\n\n*For security, never share your private key!*\n\n\`${wallet.privateKey || 'Not available'}\``,
+//       { parse_mode: 'Markdown' }
+//     );
+//   } catch (error) {
+//     await ctx.reply('❌ Failed to export wallet. Please try again.');
+//   }
+// });
 
-// Wallet Balance handler
-this.botCore.registerCallbackHandler('wallet_balance', async (ctx) => {
-  const userSettings = await userService.getUserSettings(ctx.from.id);
-  const chain = userSettings?.chain || 'solana';
-  try {
-    const wallet = await walletService.getWalletInfo(ctx.from.id, chain);
-    if (!wallet) {
-      return ctx.reply('❌ No wallet found. Create one first.');
-    }
-    const balanceInfo = await walletService.getWalletBalance(wallet.address, chain);
-    await ctx.reply(
-      `💰 **${chain.toUpperCase()} Balance:**\n${balanceInfo.balance} ${this.getChainSymbol(chain)}`,
-      { parse_mode: 'Markdown' }
-    );
-  } catch (error) {
-    await ctx.reply('❌ Failed to get balance. Please try again.');
-  }
-});
+// // Wallet Balance handler
+// this.botCore.registerCallbackHandler('wallet_balance', async (ctx) => {
+//   const userSettings = await userService.getUserSettings(ctx.from.id);
+//   const chain = userSettings?.chain || 'solana';
+//   try {
+//     const wallet = await walletService.getWalletInfo(ctx.from.id, chain);
+//     if (!wallet) {
+//       return ctx.reply('❌ No wallet found. Create one first.');
+//     }
+//     const balanceInfo = await walletService.getWalletBalance(wallet.address, chain);
+//     await ctx.reply(
+//       `💰 **${chain.toUpperCase()} Balance:**\n${balanceInfo.balance} ${this.getChainSymbol(chain)}`,
+//       { parse_mode: 'Markdown' }
+//     );
+//   } catch (error) {
+//     await ctx.reply('❌ Failed to get balance. Please try again.');
+//   }
+// });
 
 // Back to Main Menu handler
 this.botCore.registerCallbackHandler('main_menu', async (ctx) => {
   await ctx.reply('🏠 Back to main menu. Use /start to see options.');
 });
+
+// Clear session before starting a new buy process - UPDATED
+this.botCore.registerCallbackHandler('buy', async (ctx) => {
+  ctx.session = ctx.session || {};
+  // Clear previous buy session data
+  ctx.session.buyChain = null;
+  ctx.session.buyTokenAddress = null;
+  ctx.session.buyAmount = null;
+  ctx.session.buyWalletIndex = null; // ADD THIS
+  
+  await ctx.reply(`🛒 **Start Buy Process**\n\nSelect the chain you want to trade on:`, 
+    { parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: 'SOL', callback_data: 'sol' }, { text: 'ETH', callback_data: 'eth' }],
+          [{ text: 'BASE', callback_data: 'base' }, { text: 'SONIC', callback_data: 'sonic' }],
+        ]
+      }
+    });
+});
+
+// Update chain selection handlers to include wallet selection
+this.botCore.registerCallbackHandler('sol', async (ctx) => {
+  ctx.session = ctx.session || {};
+  ctx.session.buyChain = 'solana';
+  await this.showWalletSelection(ctx, 'buy');
+});
+
+this.botCore.registerCallbackHandler('eth', async (ctx) => {
+  ctx.session = ctx.session || {};
+  ctx.session.buyChain = 'ethereum';
+  await this.showWalletSelection(ctx, 'buy');
+});
+
+this.botCore.registerCallbackHandler('base', async (ctx) => {
+  ctx.session = ctx.session || {};
+  ctx.session.buyChain = 'base';
+  await this.showWalletSelection(ctx, 'buy');
+});
+
+this.botCore.registerCallbackHandler('sonic', async (ctx) => {
+  ctx.session = ctx.session || {};
+  ctx.session.buyChain = 'sonic';
+  await this.showWalletSelection(ctx, 'buy');
+});
+
+// Add wallet selection handlers for buy
+// this.botCore.registerCallbackHandler(/^buy_wallet_(\d+)$/, async (ctx) => {
+//   const walletIndex = parseInt(ctx.match[1]);
+//   ctx.session.buyWalletIndex = walletIndex;
+  
+//   await ctx.answerCbQuery();
+//   await this.botCore.promptForTokenAddressOrKeyword(ctx, 'buy');
+// });
+
+// Update wallet selection handlers to store wallet address
+this.botCore.registerCallbackHandler(/^buy_wallet_(\d+)$/, async (ctx) => {
+  try {
+    debugger
+    const walletIndex = parseInt(ctx.match[1]);
+    const userId = ctx.from.id;
+    const chain = ctx.session.buyChain;
+    
+    // Get wallet address from index
+    const userData = await userService.getUserSettings(userId);
+    let wallets = userData.custodialWallets[chain];
+    if (!Array.isArray(wallets)) wallets = [wallets];
+    
+    const selectedWallet = wallets[walletIndex];
+    if (!selectedWallet) {
+      await ctx.answerCbQuery('❌ Wallet not found');
+      return;
+    }
+    debugger
+    // Store both index and address for compatibility
+    ctx.session.buyWalletIndex = walletIndex;
+    ctx.session.buyWalletAddress = selectedWallet.address;
+
+    ctx.session.data.buyWalletIndex = walletIndex;
+    ctx.session.data.buyWalletAddress = selectedWallet.address;
+
+    debugger
+    await ctx.answerCbQuery();
+    await this.botCore.promptForTokenAddressOrKeyword(ctx, 'buy');
+    debugger
+
+  } catch (error) {
+    console.error('Buy wallet selection error:', error);
+    await ctx.answerCbQuery('❌ Error selecting wallet');
+  }
+});
+
+// Update sell wallet selection similarly
+this.botCore.registerCallbackHandler(/^sell_wallet_(\d+)$/, async (ctx) => {
+  try {
+    debugger
+    const walletIndex = parseInt(ctx.match[1]);
+    const userId = ctx.from.id;
+    const chain = ctx.session.sellChain;
+    
+    // Get wallet address from index
+    const userData = await userService.getUserSettings(userId);
+    let wallets = userData.custodialWallets[chain];
+    if (!Array.isArray(wallets)) wallets = [wallets];
+    
+    const selectedWallet = wallets[walletIndex];
+    if (!selectedWallet) {
+      await ctx.answerCbQuery('❌ Wallet not found');
+      return;
+    }
+    
+    // Store both index and address for compatibility
+    ctx.session.sellWalletIndex = walletIndex;
+    ctx.session.sellWalletAddress = selectedWallet.address;
+    
+    await ctx.answerCbQuery();
+    await this.showTokenHoldings(ctx, walletIndex);
+    
+  } catch (error) {
+    console.error('Sell wallet selection error:', error);
+    await ctx.answerCbQuery('❌ Error selecting wallet');
+  }
+});
+
+// Update finalize buy handler to use wallet address
+this.botCore.registerCallbackHandler('finalize_buy', async (ctx) => {
+  ctx.session = ctx.session || {};
+  const { buyChain, buyTokenAddress, buyAmount, buyWalletAddress } = ctx.session;
+  debugger
+  if (!buyChain || !buyTokenAddress || !buyAmount || !buyWalletAddress) {
+    await ctx.reply('❌ Missing buy information. Please start the buy process again.');
+    return;
+  }
+  debugger
+  ctx.session.buyViaButton = true;
+  ctx.session.buyText = `/buy ${buyAmount} ${buyTokenAddress}`;
+  ctx.session.selectedWalletAddress = buyWalletAddress; // Pass wallet address to buy command
+  ctx.session.selectedWalletIndex = ctx.session.buyWalletIndex ?? ctx.session.walletIndex; // Pass wallet index if needed
+  ctx.session.walletIndex = ctx.session.buyWalletIndex ?? ctx.session.walletIndex; // Pass wallet index if needed
+  try {
+    // Get wallet info for confirmation
+    const userData = await userService.getUserSettings(ctx.from.id);
+    let wallets = userData.custodialWallets[buyChain];
+    if (!Array.isArray(wallets)) wallets = [wallets];
+    const selectedWallet = wallets.find(w => w.address === buyWalletAddress);
+
+    await ctx.reply(
+      `🚀 **Executing Purchase**\n\n` +
+      `**Amount:** ${buyAmount}\n` +
+      `**Token:** ${buyTokenAddress}\n` +
+      `**Chain:** ${buyChain.toUpperCase()}\n` +
+      `**Wallet:** ${selectedWallet?.name || 'Wallet'}\n` +
+      `📍 \`${buyWalletAddress.substring(0, 8)}...${buyWalletAddress.substring(buyWalletAddress.length - 8)}\`\n\n` +
+      `⏳ Processing transaction...`, 
+      { parse_mode: 'Markdown' }
+    );
+
+    // Clear session after setting up buy
+    ctx.session.buyChain = null;
+    ctx.session.buyTokenAddress = null;
+    ctx.session.buyAmount = null;
+    ctx.session.buyWalletIndex = null;
+    ctx.session.buyWalletAddress = null;
+
+    ctx.session.data.buyWalletIndex = null;
+    ctx.session.data.buyWalletAddress = null;
+
+    const buyCommand = new BuyCommand(this.botCore);
+    await buyCommand.beginProcessBuyCommand(ctx);
+
+  } catch (error) {
+    console.error('Buy execution error:', error);
+    await ctx.reply('❌ Buy failed: ' + error.message);
+  }
+});
+
+// Add new wallet creation handler for buy
+this.botCore.registerCallbackHandler('buy_create_new_wallet', async (ctx) => {
+  try {
+    const chain = ctx.session.buyChain;
+    const userId = ctx.from.id;
+    
+    await ctx.answerCbQuery('🔄 Creating new wallet...');
+    
+    const newWallet = await walletService.createNewWallet(userId, chain);
+    ctx.session.buyWalletIndex = newWallet.walletIndex;
+    
+    await ctx.editMessageText(
+      `✅ **New ${chain.toUpperCase()} Wallet Created!**\n\n` +
+      `📍 **Address:** \`${newWallet.address}\`\n` +
+      `🆔 **Wallet Index:** ${newWallet.walletIndex}\n\n` +
+      `This wallet is now selected for your purchase.`
+    );
+    
+    // Proceed to token selection after 2 seconds
+    setTimeout(async () => {
+      await this.botCore.promptForTokenAddressOrKeyword(ctx, 'buy');
+    }, 2000);
+    
+  } catch (error) {
+    console.error('Create wallet for buy error:', error);
+    await ctx.answerCbQuery('❌ Failed to create wallet');
+    await ctx.reply('❌ Error creating wallet. Please try again.');
+  }
+});
+
     // Add this in registerBasicCommands, after other callback handlers
 // this.botCore.registerCallbackHandler('wallet', async (ctx) => {
 //   console.log('/wallet command invoked');
@@ -853,33 +1071,33 @@ this.botCore.registerCallbackHandler('main_menu', async (ctx) => {
 // });
 
 // Clear session before starting a new buy process
-this.botCore.registerCallbackHandler('buy', async (ctx) => {
-  ctx.session = ctx.session || {};
-  // Clear previous buy session data
-  ctx.session.buyChain = null;
-  ctx.session.buyTokenAddress = null;
-  ctx.session.buyAmount = null;
-  await ctx.reply(`select the chain you want to trade on`, 
-    { parse_mode: 'Markdown',
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: 'SOL', callback_data: 'sol' }, { text: 'ETH', callback_data: 'eth' }],
-          [{ text: 'BASE', callback_data: 'base' }, { text: 'SONIC', callback_data: 'sonic' }],
-        ]
-      }
-    });
+// this.botCore.registerCallbackHandler('buy', async (ctx) => {
+//   ctx.session = ctx.session || {};
+//   // Clear previous buy session data
+//   ctx.session.buyChain = null;
+//   ctx.session.buyTokenAddress = null;
+//   ctx.session.buyAmount = null;
+//   await ctx.reply(`select the chain you want to trade on`, 
+//     { parse_mode: 'Markdown',
+//       reply_markup: {
+//         inline_keyboard: [
+//           [{ text: 'SOL', callback_data: 'sol' }, { text: 'ETH', callback_data: 'eth' }],
+//           [{ text: 'BASE', callback_data: 'base' }, { text: 'SONIC', callback_data: 'sonic' }],
+//         ]
+//       }
+//     });
 
 
-// Similarly, clear session for 'sell' or other processes if needed
-this.botCore.registerCallbackHandler('sell', async (ctx) => {
-  ctx.session = ctx.session || {};
-  ctx.session.sellChain = null;
-  ctx.session.sellTokenAddress = null;
-  ctx.session.sellAmount = null;
-  // ...rest of your sell logic...
-});
+// // Similarly, clear session for 'sell' or other processes if needed
+// this.botCore.registerCallbackHandler('sell', async (ctx) => {
+//   ctx.session = ctx.session || {};
+//   ctx.session.sellChain = null;
+//   ctx.session.sellTokenAddress = null;
+//   ctx.session.sellAmount = null;
+//   // ...rest of your sell logic...
+// });
 
-});
+// });
 
 // Add these handlers after your 'buy' callback handler
 
@@ -908,29 +1126,29 @@ this.botCore.registerCallbackHandler('sell', async (ctx) => {
 // Replace the existing chain handlers in your registerBasicCommands() method:
 
 // Chain selection handlers - updated to support search
-this.botCore.registerCallbackHandler('sol', async (ctx) => {
-  ctx.session = ctx.session || {};
-  ctx.session.buyChain = 'solana';
-  await this.botCore.promptForTokenAddressOrKeyword(ctx, 'buy');
-});
+// this.botCore.registerCallbackHandler('sol', async (ctx) => {
+//   ctx.session = ctx.session || {};
+//   ctx.session.buyChain = 'solana';
+//   await this.botCore.promptForTokenAddressOrKeyword(ctx, 'buy');
+// });
 
-this.botCore.registerCallbackHandler('eth', async (ctx) => {
-  ctx.session = ctx.session || {};
-  ctx.session.buyChain = 'ethereum';
-  await this.botCore.promptForTokenAddressOrKeyword(ctx, 'buy');
-});
+// this.botCore.registerCallbackHandler('eth', async (ctx) => {
+//   ctx.session = ctx.session || {};
+//   ctx.session.buyChain = 'ethereum';
+//   await this.botCore.promptForTokenAddressOrKeyword(ctx, 'buy');
+// });
 
-this.botCore.registerCallbackHandler('base', async (ctx) => {
-  ctx.session = ctx.session || {};
-  ctx.session.buyChain = 'base';
-  await this.botCore.promptForTokenAddressOrKeyword(ctx, 'buy');
-});
+// this.botCore.registerCallbackHandler('base', async (ctx) => {
+//   ctx.session = ctx.session || {};
+//   ctx.session.buyChain = 'base';
+//   await this.botCore.promptForTokenAddressOrKeyword(ctx, 'buy');
+// });
 
-this.botCore.registerCallbackHandler('sonic', async (ctx) => {
-  ctx.session = ctx.session || {};
-  ctx.session.buyChain = 'sonic';
-  await this.botCore.promptForTokenAddressOrKeyword(ctx, 'buy');
-});
+// this.botCore.registerCallbackHandler('sonic', async (ctx) => {
+//   ctx.session = ctx.session || {};
+//   ctx.session.buyChain = 'sonic';
+//   await this.botCore.promptForTokenAddressOrKeyword(ctx, 'buy');
+// });
 
 
 // 2. Listen for token address input after chain selection
@@ -975,6 +1193,124 @@ this.botCore.registerCallbackHandler('sonic', async (ctx) => {
 // });
 // 2. Listen for token address input after chain selection
 // Update your existing text handler in registerBasicCommands()
+// this.botCore.bot.on('text', async (ctx) => {
+//   ctx.session = ctx.session || {};
+
+//   // Check for active text handlers by category
+//   if (ctx.session.activeTextHandler) {
+//     const handlerCategory = ctx.session.activeTextHandler;
+    
+//     if (this.botCore.textHandlerCategories && this.botCore.textHandlerCategories[handlerCategory]) {
+//       try {
+//         await this.botCore.textHandlerCategories[handlerCategory](ctx);
+//         return;
+//       } catch (error) {
+//         console.error(`Error in text handler category ${handlerCategory}:`, error);
+//         ctx.session.activeTextHandler = null;
+//       }
+//     }
+//   }
+
+//   // Check for sell input handlers
+//   if (ctx.session.awaitingInput) {
+//     const sellCommandHandler = new (require('./CommandHandlers/SellCommandHandler'))(this.botCore);
+    
+//     switch (ctx.session.awaitingInput) {
+//       case 'awaiting_sell_token':
+//         await sellCommandHandler.handleTokenOrKeywordInput(ctx);
+//         return;
+//       case 'awaiting_sell_percentage':
+//         await sellCommandHandler.handlePercentageInput(ctx);
+//         return;
+//       case 'awaiting_sell_amount':
+//         await sellCommandHandler.handleAmountInput(ctx);
+//         return;
+//     }
+//   }
+
+//   if(ctx.session.awaitingImportPrivateKey) {
+//     ctx.session = ctx.session || {};
+//     const privateKey = ctx.message.text.trim();
+
+//     if (!privateKey || privateKey.length < 32) {
+//       await ctx.reply('❌ Invalid private key. Please try again or /cancel.');
+//       return;
+//     }
+
+//     try {
+//       const userId = ctx.from.id;
+//       const result = await walletService.importWallet(userId, privateKey);
+
+//       if (result && result.address) {
+//         await ctx.reply(
+//           `✅ **Wallet Imported Successfully!**\n\n` +
+//           `📍 **Address:** \`${result.address}\`\n` +
+//           `🔒 Your wallet is now available for trading.`,
+//           { parse_mode: 'Markdown' }
+//         );
+//       } else {
+//         await ctx.reply('❌ Failed to import wallet. Please check your private key and try again.');
+//       }
+//     } catch (error) {
+//       await ctx.reply('❌ Error importing wallet: ' + error.message);
+//     }
+
+//     ctx.session.awaitingImportPrivateKey = false;
+//   }
+
+//   // Check for buy token input
+//   if (ctx.session.awaitingBuyTokenInput) {
+//     await this.botCore.handleBuyTokenInput(ctx);
+//     ctx.session.awaitingBuyTokenInput = false;
+//     return;
+//   }
+
+//   // Only proceed if we're expecting a token address for buy (legacy flow)
+//   if (ctx.session.buyChain && !ctx.session.buyTokenAddress) {
+//     const tokenAddress = ctx.message.text.trim();
+//     ctx.session.buyTokenAddress = tokenAddress;
+
+//     // Fetch token info
+//     const tokenDataService = require('./services/tokenDataService');
+//     const infoResult = await tokenDataService.getComprehensiveTokenInfo(tokenAddress, ctx.session.buyChain);
+//     const tokenInfo = infoResult?.data || {};
+
+//     // Show token info and prompt for amount
+//     await ctx.reply(
+//       `🛒 You are about to purchase *${tokenInfo.name || 'Unknown Token'}* (${tokenInfo.symbol || 'UNKNOWN'})\n` +
+//       `Price: $${tokenInfo.priceUSD || tokenInfo.price || 'N/A'}\n` +
+//       `Chain: ${ctx.session.buyChain.toUpperCase()}\n\n` +
+//       `Please input the *amount* you want to buy:`,
+//       { parse_mode: 'Markdown' }
+//     );
+//     return;
+//   }
+
+//   // If we have both chain and token address, expect amount
+//   if (ctx.session.buyChain && ctx.session.buyTokenAddress && !ctx.session.buyAmount) {
+//     const amount = ctx.message.text.trim();
+//     ctx.session.buyAmount = amount;
+
+//     // Show finalize button
+//     await ctx.reply(
+//       `✅ Preparing to buy *${amount}* of *${ctx.session.buyTokenAddress}* on *${ctx.session.buyChain.toUpperCase()}*.\n\n` +
+//       `Click "Finalize Buy" to execute the purchase or /cancel to abort.`,
+//       {
+//         parse_mode: 'Markdown',
+//         reply_markup: {
+//           inline_keyboard: [
+//             [{ text: '🟢 Finalize Buy', callback_data: 'finalize_buy' }]
+//           ]
+//         }
+//       }
+//     );
+//     return;
+//   }
+// });
+
+
+// Complete text handler with wallet selection support - CLEANED VERSION
+// Complete text handler with wallet address selection support
 this.botCore.bot.on('text', async (ctx) => {
   ctx.session = ctx.session || {};
 
@@ -1010,36 +1346,6 @@ this.botCore.bot.on('text', async (ctx) => {
     }
   }
 
-  if(ctx.session.awaitingImportPrivateKey) {
-    ctx.session = ctx.session || {};
-    const privateKey = ctx.message.text.trim();
-
-    if (!privateKey || privateKey.length < 32) {
-      await ctx.reply('❌ Invalid private key. Please try again or /cancel.');
-      return;
-    }
-
-    try {
-      const userId = ctx.from.id;
-      const result = await walletService.importWallet(userId, privateKey);
-
-      if (result && result.address) {
-        await ctx.reply(
-          `✅ **Wallet Imported Successfully!**\n\n` +
-          `📍 **Address:** \`${result.address}\`\n` +
-          `🔒 Your wallet is now available for trading.`,
-          { parse_mode: 'Markdown' }
-        );
-      } else {
-        await ctx.reply('❌ Failed to import wallet. Please check your private key and try again.');
-      }
-    } catch (error) {
-      await ctx.reply('❌ Error importing wallet: ' + error.message);
-    }
-
-    ctx.session.awaitingImportPrivateKey = false;
-  }
-
   // Check for buy token input
   if (ctx.session.awaitingBuyTokenInput) {
     await this.botCore.handleBuyTokenInput(ctx);
@@ -1047,8 +1353,71 @@ this.botCore.bot.on('text', async (ctx) => {
     return;
   }
 
-  // Only proceed if we're expecting a token address for buy (legacy flow)
-  if (ctx.session.buyChain && !ctx.session.buyTokenAddress) {
+  // Handle buy flow with wallet address selection
+  if (ctx.session.buyChain && ctx.session.buyWalletAddress && !ctx.session.buyTokenAddress) {
+    const tokenAddress = ctx.message.text.trim();
+    ctx.session.buyTokenAddress = tokenAddress;
+
+    // Fetch token info
+    const tokenDataService = require('./services/tokenDataService');
+    const infoResult = await tokenDataService.getComprehensiveTokenInfo(tokenAddress, ctx.session.buyChain);
+    const tokenInfo = infoResult?.data || {};
+
+    // Get selected wallet info by address
+    const userData = await userService.getUserSettings(ctx.from.id);
+    let wallets = userData.custodialWallets[ctx.session.buyChain];
+    if (!Array.isArray(wallets)) wallets = [wallets];
+    const selectedWallet = wallets.find(w => w.address === ctx.session.buyWalletAddress);
+
+    // Show token info and prompt for amount
+    await ctx.reply(
+      `🛒 **Purchase Summary**\n\n` +
+      `**Token:** ${tokenInfo.name || 'Unknown Token'} (${tokenInfo.symbol || 'UNKNOWN'})\n` +
+      `**Price:** $${tokenInfo.priceUSD || tokenInfo.price || 'N/A'}\n` +
+      `**Chain:** ${ctx.session.buyChain.toUpperCase()}\n\n` +
+      `**Selected Wallet:**\n` +
+      `📍 ${selectedWallet?.name || 'Wallet'} | \`${ctx.session.buyWalletAddress.substring(0, 8)}...${ctx.session.buyWalletAddress.substring(ctx.session.buyWalletAddress.length - 8)}\`\n\n` +
+      `💰 Please input the **amount** you want to buy:`,
+      { parse_mode: 'Markdown' }
+    );
+    return;
+  }
+
+  // If we have chain, wallet address, and token address, expect amount
+  if (ctx.session.buyChain && ctx.session.buyWalletAddress && ctx.session.buyTokenAddress && !ctx.session.buyAmount) {
+    const amount = ctx.message.text.trim();
+    ctx.session.buyAmount = amount;
+
+    // Get wallet info for final confirmation by address
+    const userData = await userService.getUserSettings(ctx.from.id);
+    let wallets = userData.custodialWallets[ctx.session.buyChain];
+    if (!Array.isArray(wallets)) wallets = [wallets];
+    const selectedWallet = wallets.find(w => w.address === ctx.session.buyWalletAddress);
+
+    // Show finalize button with complete summary
+    await ctx.reply(
+      `✅ **Final Purchase Confirmation**\n\n` +
+      `**Amount:** ${amount}\n` +
+      `**Token:** ${ctx.session.buyTokenAddress}\n` +
+      `**Chain:** ${ctx.session.buyChain.toUpperCase()}\n\n` +
+      `**Wallet:** ${selectedWallet?.name || 'Wallet'}\n` +
+      `📍 \`${ctx.session.buyWalletAddress.substring(0, 8)}...${ctx.session.buyWalletAddress.substring(ctx.session.buyWalletAddress.length - 8)}\`\n\n` +
+      `Click "Finalize Buy" to execute the purchase or /cancel to abort.`,
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🟢 Finalize Buy', callback_data: 'finalize_buy' }],
+            [{ text: '❌ Cancel Purchase', callback_data: 'main_menu' }]
+          ]
+        }
+      }
+    );
+    return;
+  }
+
+  // Legacy buy flow (without wallet selection) - for backward compatibility
+  if (ctx.session.buyChain && !ctx.session.buyTokenAddress && !ctx.session.buyWalletAddress) {
     const tokenAddress = ctx.message.text.trim();
     ctx.session.buyTokenAddress = tokenAddress;
 
@@ -1059,36 +1428,208 @@ this.botCore.bot.on('text', async (ctx) => {
 
     // Show token info and prompt for amount
     await ctx.reply(
-      `🛒 You are about to purchase *${tokenInfo.name || 'Unknown Token'}* (${tokenInfo.symbol || 'UNKNOWN'})\n` +
+      `🛒 You are about to purchase **${tokenInfo.name || 'Unknown Token'}** (${tokenInfo.symbol || 'UNKNOWN'})\n` +
       `Price: $${tokenInfo.priceUSD || tokenInfo.price || 'N/A'}\n` +
       `Chain: ${ctx.session.buyChain.toUpperCase()}\n\n` +
-      `Please input the *amount* you want to buy:`,
+      `Please input the **amount** you want to buy:`,
       { parse_mode: 'Markdown' }
     );
     return;
   }
 
-  // If we have both chain and token address, expect amount
-  if (ctx.session.buyChain && ctx.session.buyTokenAddress && !ctx.session.buyAmount) {
+  // If we have both chain and token address (legacy), expect amount
+  if (ctx.session.buyChain && ctx.session.buyTokenAddress && !ctx.session.buyAmount && !ctx.session.buyWalletAddress) {
     const amount = ctx.message.text.trim();
     ctx.session.buyAmount = amount;
 
     // Show finalize button
     await ctx.reply(
-      `✅ Preparing to buy *${amount}* of *${ctx.session.buyTokenAddress}* on *${ctx.session.buyChain.toUpperCase()}*.\n\n` +
+      `✅ Preparing to buy **${amount}** of **${ctx.session.buyTokenAddress}** on **${ctx.session.buyChain.toUpperCase()}**.\n\n` +
       `Click "Finalize Buy" to execute the purchase or /cancel to abort.`,
       {
         parse_mode: 'Markdown',
         reply_markup: {
           inline_keyboard: [
-            [{ text: '🟢 Finalize Buy', callback_data: 'finalize_buy' }]
+            [{ text: '🟢 Finalize Buy', callback_data: 'finalize_buy' }],
+            [{ text: '❌ Cancel Purchase', callback_data: 'main_menu' }]
           ]
         }
       }
     );
     return;
   }
+
+  // Handle sell flow with wallet address selection
+  if (ctx.session.sellChain && ctx.session.sellWalletAddress && !ctx.session.sellTokenAddress) {
+    const input = ctx.message.text.trim();
+    
+    // Check if input is 'native' or a token address
+    if (input.toLowerCase() === 'native' || input.toLowerCase() === this.getChainSymbol(ctx.session.sellChain).toLowerCase()) {
+      // Selling native token
+      ctx.session.sellTokenAddress = 'native';
+      
+      // Get selected wallet info by address
+      const userData = await userService.getUserSettings(ctx.from.id);
+      let wallets = userData.custodialWallets[ctx.session.sellChain];
+      if (!Array.isArray(wallets)) wallets = [wallets];
+      const selectedWallet = wallets.find(w => w.address === ctx.session.sellWalletAddress);
+      
+      // Get wallet balance
+      let balanceInfo;
+      try {
+        balanceInfo = await walletService.getWalletBalance(ctx.session.sellWalletAddress, ctx.session.sellChain);
+      } catch (error) {
+        balanceInfo = { balance: '0.000000', symbol: this.getChainSymbol(ctx.session.sellChain) };
+      }
+      
+      await ctx.reply(
+        `💰 **Sell ${this.getChainSymbol(ctx.session.sellChain)}**\n\n` +
+        `**Available Balance:** ${balanceInfo.balance} ${balanceInfo.symbol}\n` +
+        `**Chain:** ${ctx.session.sellChain.toUpperCase()}\n\n` +
+        `**Wallet:** ${selectedWallet?.name || 'Wallet'}\n` +
+        `📍 \`${ctx.session.sellWalletAddress.substring(0, 8)}...${ctx.session.sellWalletAddress.substring(ctx.session.sellWalletAddress.length - 8)}\`\n\n` +
+        `Please enter the **amount** to sell or **percentage** (e.g., 50%):`
+      );
+      return;
+    } else {
+      // Token address provided
+      ctx.session.sellTokenAddress = input;
+      
+      // Fetch token info
+      const tokenDataService = require('./services/tokenDataService');
+      const infoResult = await tokenDataService.getComprehensiveTokenInfo(input, ctx.session.sellChain);
+      const tokenInfo = infoResult?.data || {};
+      
+      await ctx.reply(
+        `💰 **Sell Token**\n\n` +
+        `**Token:** ${tokenInfo.name || 'Unknown Token'} (${tokenInfo.symbol || 'UNKNOWN'})\n` +
+        `**Price:** $${tokenInfo.priceUSD || tokenInfo.price || 'N/A'}\n` +
+        `**Chain:** ${ctx.session.sellChain.toUpperCase()}\n\n` +
+        `Please enter the **amount** to sell or **percentage** (e.g., 50%):`
+      );
+      return;
+    }
+  }
+
+  // Handle sell amount input with wallet address
+  if (ctx.session.sellChain && ctx.session.sellWalletAddress && ctx.session.sellTokenAddress && !ctx.session.sellAmount) {
+    const amount = ctx.message.text.trim();
+    ctx.session.sellAmount = amount;
+
+    // Get wallet info for final confirmation by address
+    const userData = await userService.getUserSettings(ctx.from.id);
+    let wallets = userData.custodialWallets[ctx.session.sellChain];
+    if (!Array.isArray(wallets)) wallets = [wallets];
+    const selectedWallet = wallets.find(w => w.address === ctx.session.sellWalletAddress);
+
+    const isNative = ctx.session.sellTokenAddress === 'native';
+    const tokenDisplay = isNative ? this.getChainSymbol(ctx.session.sellChain) : ctx.session.sellTokenAddress;
+
+    // Show finalize button with complete summary
+    await ctx.reply(
+      `✅ **Final Sale Confirmation**\n\n` +
+      `**Amount:** ${amount}\n` +
+      `**Token:** ${tokenDisplay}\n` +
+      `**Chain:** ${ctx.session.sellChain.toUpperCase()}\n\n` +
+      `**Wallet:** ${selectedWallet?.name || 'Wallet'}\n` +
+      `📍 \`${ctx.session.sellWalletAddress.substring(0, 8)}...${ctx.session.sellWalletAddress.substring(ctx.session.sellWalletAddress.length - 8)}\`\n\n` +
+      `Click "Finalize Sell" to execute the sale or /cancel to abort.`,
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🔴 Finalize Sell', callback_data: 'finalize_sell' }],
+            [{ text: '❌ Cancel Sale', callback_data: 'main_menu' }]
+          ]
+        }
+      }
+    );
+    return;
+  }
+
+  // Legacy sell flow (without wallet selection) - for backward compatibility
+  if (ctx.session.sellChain && !ctx.session.sellTokenAddress && !ctx.session.sellWalletAddress) {
+    const input = ctx.message.text.trim();
+    
+    // Check if input is 'native' or a token address
+    if (input.toLowerCase() === 'native' || input.toLowerCase() === this.getChainSymbol(ctx.session.sellChain).toLowerCase()) {
+      // Selling native token
+      ctx.session.sellTokenAddress = 'native';
+      
+      await ctx.reply(
+        `💰 **Sell ${this.getChainSymbol(ctx.session.sellChain)}**\n\n` +
+        `**Chain:** ${ctx.session.sellChain.toUpperCase()}\n\n` +
+        `Please enter the **amount** to sell or **percentage** (e.g., 50%):`
+      );
+      return;
+    } else {
+      // Token address provided
+      ctx.session.sellTokenAddress = input;
+      
+      // Fetch token info
+      const tokenDataService = require('./services/tokenDataService');
+      const infoResult = await tokenDataService.getComprehensiveTokenInfo(input, ctx.session.sellChain);
+      const tokenInfo = infoResult?.data || {};
+      
+      await ctx.reply(
+        `💰 **Sell Token**\n\n` +
+        `**Token:** ${tokenInfo.name || 'Unknown Token'} (${tokenInfo.symbol || 'UNKNOWN'})\n` +
+        `**Price:** $${tokenInfo.priceUSD || tokenInfo.price || 'N/A'}\n` +
+        `**Chain:** ${ctx.session.sellChain.toUpperCase()}\n\n` +
+        `Please enter the **amount** to sell or **percentage** (e.g., 50%):`
+      );
+      return;
+    }
+  }
+
+  // Legacy sell amount input (without wallet selection)
+  if (ctx.session.sellChain && ctx.session.sellTokenAddress && !ctx.session.sellAmount && !ctx.session.sellWalletAddress) {
+    const amount = ctx.message.text.trim();
+    ctx.session.sellAmount = amount;
+
+    const isNative = ctx.session.sellTokenAddress === 'native';
+    const tokenDisplay = isNative ? this.getChainSymbol(ctx.session.sellChain) : ctx.session.sellTokenAddress;
+
+    // Show finalize button with basic summary
+    await ctx.reply(
+      `✅ **Final Sale Confirmation**\n\n` +
+      `**Amount:** ${amount}\n` +
+      `**Token:** ${tokenDisplay}\n` +
+      `**Chain:** ${ctx.session.sellChain.toUpperCase()}\n\n` +
+      `Click "Finalize Sell" to execute the sale or /cancel to abort.`,
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🔴 Finalize Sell', callback_data: 'finalize_sell' }],
+            [{ text: '❌ Cancel Sale', callback_data: 'main_menu' }]
+          ]
+        }
+      }
+    );
+    return;
+  }
+
+  // Log unhandled text messages for debugging
+  console.log('Unhandled text message:', {
+    text: ctx.message.text,
+    session: {
+      buyChain: ctx.session.buyChain,
+      buyWalletAddress: ctx.session.buyWalletAddress,
+      buyTokenAddress: ctx.session.buyTokenAddress,
+      buyAmount: ctx.session.buyAmount,
+      sellChain: ctx.session.sellChain,
+      sellWalletAddress: ctx.session.sellWalletAddress,
+      sellTokenAddress: ctx.session.sellTokenAddress,
+      sellAmount: ctx.session.sellAmount,
+      activeTextHandler: ctx.session.activeTextHandler,
+      awaitingInput: ctx.session.awaitingInput,
+      awaitingBuyTokenInput: ctx.session.awaitingBuyTokenInput
+    },
+    userId: ctx.from.id
+  });
 });
+
 // this.botCore.bot.on('text', async (ctx) => {
 //   ctx.session = ctx.session || {};
 
@@ -1169,42 +1710,44 @@ this.botCore.bot.on('text', async (ctx) => {
 // });
 
 // 3. Finalize buy handler
-this.botCore.registerCallbackHandler('finalize_buy', async (ctx) => {
-  ctx.session = ctx.session || {};
-  // Retrieve session data
-  const { buyChain, buyTokenAddress, buyAmount } = ctx.session;
+// this.botCore.registerCallbackHandler('finalize_buy', async (ctx) => {
+//   ctx.session = ctx.session || {};
+//   // Retrieve session data
+//   const { buyChain, buyTokenAddress, buyAmount } = ctx.session;
 
-  if (!buyChain || !buyTokenAddress || !buyAmount) {
-    await ctx.reply('❌ Missing buy information. Please start the buy process again.');
-    return;
-  }
+//   if (!buyChain || !buyTokenAddress || !buyAmount) {
+//     await ctx.reply('❌ Missing buy information. Please start the buy process again.');
+//     return;
+//   }
 
-  // ctx.message = ctx.message || {};
-  // ctx.message.text = `${buyAmount} ${buyTokenAddress}`;
+//   // ctx.message = ctx.message || {};
+//   // ctx.message.text = `${buyAmount} ${buyTokenAddress}`;
 
-  ctx.session.buyViaButton = true;
-  ctx.session.buyText = `/buy ${buyAmount} ${buyTokenAddress}`;
-  // Call your buy logic here (replace with your actual buy function)
-  try {
-    // Example: await enhancedBuyCommand.executeBuy(ctx, buyChain, buyTokenAddress, buyAmount);
-    await ctx.reply(`🚀 Executing buy for *${buyAmount}* of *${buyTokenAddress}* on *${buyChain.toUpperCase()}*...`, { parse_mode: 'Markdown' });
+//   ctx.session.buyViaButton = true;
+//   ctx.session.buyText = `/buy ${buyAmount} ${buyTokenAddress}`;
+//   // Call your buy logic here (replace with your actual buy function)
+//   try {
+//     // Example: await enhancedBuyCommand.executeBuy(ctx, buyChain, buyTokenAddress, buyAmount);
+//     await ctx.reply(`🚀 Executing buy for *${buyAmount}* of *${buyTokenAddress}* on *${buyChain.toUpperCase()}*...`, { parse_mode: 'Markdown' });
 
 
-    // Optionally, clear session after buy
-    ctx.session.buyChain = null;
-    ctx.session.buyTokenAddress = null;
-    ctx.session.buyAmount = null;
+//     // Optionally, clear session after buy
+//     ctx.session.buyChain = null;
+//     ctx.session.buyTokenAddress = null;
+//     ctx.session.buyAmount = null;
 
-    //await enhancedBuyCommand.execute(ctx)
-        const buyCommand = new BuyCommand(this.botCore);
+//     //await enhancedBuyCommand.execute(ctx)
+//         const buyCommand = new BuyCommand(this.botCore);
 
-    await buyCommand.beginProcessBuyCommand(ctx);
+//     await buyCommand.beginProcessBuyCommand(ctx);
 
-  } catch (error) {
-    console.error('Buy execution error:', error);
-    await ctx.reply('❌ Buy failed: ' + error.message);
-  }
-});
+//   } catch (error) {
+//     console.error('Buy execution error:', error);
+//     await ctx.reply('❌ Buy failed: ' + error.message);
+//   }
+// });
+
+
     // Comprehensive help command matching old bot
     this.botCore.registerCommand('help', async (ctx) => {
       return ctx.reply(`🤖 **Smile Snipper Bot Commands**
@@ -1359,6 +1902,94 @@ Use /wallet to create a ${chain.toUpperCase()} wallet if you don't have one.`);
     });
   }
 
+  // Add this method to the SmileSnipperBot class
+async showWalletSelection(ctx, action = 'buy') {
+  try {
+    const userId = ctx.from.id;
+    const chain = ctx.session[`${action}Chain`];
+    
+    // Get user's wallets for this chain
+    const userData = await userService.getUserSettings(userId);
+    
+    let wallets = [];
+    if (userData.custodialWallets && userData.custodialWallets[chain]) {
+      wallets = userData.custodialWallets[chain];
+      
+      // Handle legacy single wallet format
+      if (!Array.isArray(wallets)) {
+        wallets = [wallets];
+      }
+    }
+    
+    let message = `💼 **Select Wallet for ${action.toUpperCase()} - ${chain.toUpperCase()}**\n\n`;
+    
+    if (wallets.length === 0) {
+      message += `❌ No wallets found for ${chain.toUpperCase()}.\n\n`;
+      message += `Create your first wallet to continue:`;
+      
+      const keyboard = {
+        inline_keyboard: [
+          [{ text: `🆕 Create ${chain.toUpperCase()} Wallet`, callback_data: `${action}_create_new_wallet` }],
+          [{ text: '❌ Cancel', callback_data: 'main_menu' }]
+        ]
+      };
+      
+      return await ctx.editMessageText(message, {
+        parse_mode: 'Markdown',
+        reply_markup: keyboard
+      });
+    }
+    
+    message += `Choose which wallet to use:\n\n`;
+    
+    const walletButtons = [];
+    
+    for (let i = 0; i < wallets.length; i++) {
+      const wallet = wallets[i];
+      
+      // Get wallet balance
+      let balanceText = '';
+      try {
+        const balanceInfo = await walletService.getWalletBalance(wallet.address, chain);
+        balanceText = ` | ${balanceInfo.balance} ${balanceInfo.symbol}`;
+      } catch (error) {
+        balanceText = ' | Balance: N/A';
+      }
+      debugger
+      const walletName = wallet.name || `Wallet ${i + 1}`;
+      const isDefault = wallet.isDefault ? ' 🌟' : '';
+      const shortAddress = `${wallet.address.substring(0, 6)}...${wallet.address.substring(wallet.address.length - 4)}`;
+      
+      message += `**${i + 1}.** ${walletName}${isDefault}\n`;
+      message += `📍 \`${shortAddress}\`${balanceText}\n\n`;
+      
+      walletButtons.push([{
+        text: `${i + 1}. ${walletName}${isDefault}${balanceText}`,
+        callback_data: `${action}_wallet_${i}`
+      }]);
+    }
+    
+    // Add create new wallet and cancel options
+    walletButtons.push([
+      { text: '➕ Create New Wallet', callback_data: `${action}_create_new_wallet` }
+    ]);
+    walletButtons.push([
+      { text: '❌ Cancel', callback_data: 'main_menu' }
+    ]);
+    
+    const keyboard = { inline_keyboard: walletButtons };
+    
+    await ctx.editMessageText(message, {
+      parse_mode: 'Markdown',
+      reply_markup: keyboard
+    });
+    
+  } catch (error) {
+    console.error('Show wallet selection error:', error);
+    await ctx.reply('❌ Error loading wallets. Please try again.');
+  }
+}
+
   // Add this method to handle token selection for buy
 async handleBuyTokenSelection(ctx) {
   try {
@@ -1478,6 +2109,7 @@ For security reasons, private key export is done through secure channels only. C
 
   registerCopyTradingCommands() {
   this.botCore.registerCommand('addwallet', async (ctx) => {
+    console.log('/addwallet command invoked');
     const args = ctx.message.text.split(' ').slice(1);
 
     if (args.length === 0) {
@@ -1874,6 +2506,8 @@ Use /buy <token> to trade any of these tokens!`;
         await this.initialize();
       }
 
+      //startPollingLoop(Number(process.env.POLL_INTERVAL_MS || 1500000), this.botCore.bot);
+
       await this.botCore.start();
       
       console.log('🎉 ================== BOT LAUNCHED ==================');
@@ -1978,11 +2612,9 @@ console.log('after create server')
 //   });
 // })();
 
-//startPollingLoop(Number(process.env.POLL_INTERVAL_MS || 15000));
   console.log("starting the bot")
   // Start the bot
   await bot.start();
-
  
 }
 

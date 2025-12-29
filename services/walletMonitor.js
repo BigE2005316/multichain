@@ -54,26 +54,22 @@ class RateLimiter {
 const solanaRateLimiter = new RateLimiter(2, 15000); // 2 requests per 15 seconds
 const evmRateLimiter = new RateLimiter(1, 20000); // 1 request per 20 seconds
 
-// RPC connections with better error handling
-let solanaConnection;
+// Use centralized RPC manager for robust failover and retries
+const { getRPCManager } = require('./rpcManager');
+const rpcManager = getRPCManager();
 let ethProvider;
 let bscProvider;
 
 function initializeConnections() {
   try {
-    const solanaRpcUrl = process.env.SOLANA_RPC || process.env.HELIUS_RPC_URL || 'https://api.mainnet-beta.solana.com';
-    
-    solanaConnection = new Connection(
-      solanaRpcUrl,
-      {
-        commitment: 'confirmed',
-        confirmTransactionInitialTimeout: 30000,
-        disableRetryOnRateLimit: true, // Don't auto-retry on rate limits
-        httpHeaders: {
-          'User-Agent': 'SmileSniper/1.0'
-        }
-      }
-    );
+    const solanaRpcUrl = process.env.SOLANA_RPC || process.env.HELIUS_RPC_URL || process.env.QUICKNODE_SOL_RPC || 'https://api.mainnet-beta.solana.com';
+
+    // Register the configured Solana RPC with the centralized RPC manager
+    try {
+      rpcManager.addRPC('solana', solanaRpcUrl, 1);
+    } catch (e) {
+      console.warn('Could not register Solana RPC with rpcManager:', e.message);
+    }
 
     if (process.env.ETH_RPC) {
       ethProvider = new JsonRpcProvider(process.env.ETH_RPC);
@@ -221,19 +217,77 @@ async function parseSolanaTransaction(tx, walletAddress) {
 
 // Process trade through copy trading engine
 async function processTradeForUsers(trade, walletAddress, chain) {
-  if (!copyTradingEngine || !trade || trade.action === 'unknown') {
-    return;
-  }
-  
+  // New flow: create an idempotent TradeLog and ask admin to confirm how to replicate
+  if (!trade || trade.action === 'unknown') return;
+
+  const TradeLog = require('../src/models/TradeLog.js');
+  const WalletFollow = require('../src/models/WalletFollow.js');
+  const { idempotency } = require('../src/services/idempotency.service.js');
+  const { enqueueExecution } = require('../src/queue/index.js');
+
   try {
-    const users = await userService.getAllUsersWithWallets();
-    
-    for (const [userId, userData] of Object.entries(users)) {
-      if (userData.chain?.toLowerCase() !== chain.toLowerCase()) continue;
-      if (!userData.wallets?.includes(walletAddress)) continue;
-      
-      await copyTradingEngine.processTrackedWalletTrade(userId, walletAddress, trade, chain);
+    // Lookup wallet-follow configuration
+    const chainEnum = (chain || '').toLowerCase().includes('sol') ? 'SOL' : 'EVM';
+    const wf = await WalletFollow.findOne({ chain: chainEnum, leader: walletAddress });
+    if (!wf || !wf.followers || wf.followers.length === 0) return;
+
+    const idKey = `${chainEnum}:${trade.txHash}`;
+    if (!(await idempotency.tryLock(idKey))) {
+      console.log(`Deduped trade ${idKey}`);
+      return;
     }
+
+    const logDoc = await TradeLog.create({
+      chain: chainEnum,
+      leader: walletAddress,
+      leaderTx: trade.txHash,
+      tokenIn: trade.tokenAddress || null,
+      tokenOut: null,
+      amountIn: String(trade.amount ?? '0'),
+      parsedAt: new Date(),
+      idempotencyKey: idKey,
+      followers: wf.followers.map(f => ({ userId: f.userId }))
+    });
+
+    // Send admin approval request (if configured)
+    try {
+      if (botInstance && process.env.ADMIN_TELEGRAM_ID) {
+        const adminId = process.env.ADMIN_TELEGRAM_ID;
+        const explorer = chainEnum === 'SOL' ? `https://solscan.io/tx/${trade.txHash}` : `https://etherscan.io/tx/${trade.txHash}`;
+        const msg = `🔔 *Trade Detected*\n` +
+                    `• *Leader:* \`${walletAddress}\`\n` +
+                    `• *Chain:* ${chainEnum}\n` +
+                    `• *Type:* ${trade.action}\n` +
+                    `• *Amount:* ${trade.amount}\n` +
+                    `• *Token:* ${trade.tokenAddress}\n` +
+                    `• *Tx:* [link](${explorer})\n\n` +
+                    `Please choose how to replicate this trade:`;
+
+        const keyboard = {
+          inline_keyboard: [
+            [
+              { text: '✅ Approve 100%', callback_data: `ct_trade_approve_${logDoc._id}_100` },
+              { text: '✅ Approve 50%', callback_data: `ct_trade_approve_${logDoc._id}_50` }
+            ],
+            [
+              { text: '✅ Approve 25%', callback_data: `ct_trade_approve_${logDoc._id}_25` },
+              { text: '✅ Approve 10%', callback_data: `ct_trade_approve_${logDoc._id}_10` }
+            ],
+            [
+              { text: '✏️ Manual Amount/Percent', callback_data: `ct_trade_manual_${logDoc._id}` },
+              { text: '❌ Reject', callback_data: `ct_trade_reject_${logDoc._id}` }
+            ]
+          ]
+        };
+
+        await botInstance.telegram.sendMessage(adminId, msg, { parse_mode: 'Markdown', reply_markup: keyboard, disable_web_page_preview: true });
+      } else {
+        console.log(`Trade ${logDoc._id} created and awaiting approval (no admin configured).`);
+      }
+    } catch (notifyErr) {
+      console.warn('Failed to notify admin for trade approval:', notifyErr.message);
+    }
+
   } catch (error) {
     console.warn('Error processing trade for users:', error.message);
   }
@@ -271,10 +325,12 @@ async function monitorSolanaWallets() {
           await solanaRateLimiter.throttle();
           
           const publicKey = new PublicKey(wallet);
-          const signatures = await solanaConnection.getSignaturesForAddress(publicKey, { 
-            limit: 1, // Only check 1 most recent transaction
-            commitment: 'confirmed'
-          });
+          const signatures = await rpcManager.executeWithRetry('solana', async (rpc) => {
+            return await rpc.getSignaturesForAddress(publicKey, { 
+              limit: 1, // Only check 1 most recent transaction
+              commitment: 'confirmed'
+            });
+          }, 3);
           
           if (signatures && signatures.length > 0) {
             const sig = signatures[0];
@@ -285,10 +341,12 @@ async function monitorSolanaWallets() {
               
               await solanaRateLimiter.throttle();
               
-              const tx = await solanaConnection.getTransaction(sig.signature, { 
-                commitment: 'confirmed',
-                maxSupportedTransactionVersion: 0
-              });
+              const tx = await rpcManager.executeWithRetry('solana', async (rpc) => {
+                return await rpc.getTransaction(sig.signature, { 
+                  commitment: 'confirmed',
+                  maxSupportedTransactionVersion: 0
+                });
+              }, 3);
               
               if (tx) {
                 const trade = await parseSolanaTransaction(tx, wallet);

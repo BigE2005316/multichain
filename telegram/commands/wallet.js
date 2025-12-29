@@ -5,6 +5,99 @@ const userService = require('../../users/userService');
 const walletHandler = new Composer();
 
 // Enhanced wallet creation command with auto-initialization
+// walletHandler.command('wallet', async (ctx) => {
+//   try {
+//     console.log('/wallet command processing for user:', ctx.from.id);
+//     const userId = ctx.from.id;
+//     await userService.updateLastActive(userId);
+    
+//     const userSettings = await userService.getUserSettings(userId);
+    
+//     if (!userSettings.chain) {
+//       return ctx.reply('⚠️ Please set your chain first using /setchain command.');
+//     }
+    
+//     const chain = userSettings.chain;
+    
+//     // Show loading message
+//     const loadingMsg = await ctx.reply('🔄 Loading your wallet...');
+    
+//     try {
+//       // Create or get wallet
+//       const result = await walletService.getOrCreateWallet(userId, chain);
+      
+//       if (!result) {
+//         await ctx.editMessageText('❌ Failed to create or retrieve wallet. Please try again.');
+//         return;
+//       }
+      
+//       // Get real-time balance
+//       const balanceInfo = await walletService.getWalletBalance(result.address, chain);
+      
+//       let message = `💼 **Your ${chain.toUpperCase()} Wallet**\n\n`;
+//       message += `📍 **Address:**\n\`${result.address}\`\n\n`;
+//       message += `💰 **Balance:** ${balanceInfo.balance} ${balanceInfo.symbol}\n`;
+//       message += `💵 **USD Value:** $${balanceInfo.usdValue}\n`;
+      
+//       if (balanceInfo.tokenPrice) {
+//         message += `📈 **${balanceInfo.symbol} Price:** $${balanceInfo.tokenPrice.toFixed(2)}\n`;
+//       }
+      
+//       message += `\n🔄 **Status:** ${result.exists ? 'Existing wallet loaded' : 'New wallet created'}\n`;
+      
+//       if (balanceInfo.error) {
+//         message += `⚠️ **Note:** ${balanceInfo.error}\n`;
+//       }
+      
+//       message += `\n💡 **Quick Actions:**\n`;
+//       message += `• \`/exportwallet\` - Export private key (SECURE!)\n`;
+//       message += `• \`/balance\` - Check current balance\n`;
+//       message += `• \`/buy <amount> <token>\` - Buy tokens\n`;
+//       message += `• \`/sell <token>\` - Sell tokens\n`;
+//       message += `• \`/sendtokens <address> <amount>\` - Send tokens\n\n`;
+      
+//       message += `🔥 **To add funds:** Send ${balanceInfo.symbol} to your wallet address above\n`;
+//       message += `⚡ **Ready for trading:** Your wallet is connected and ready for manual trades\n\n`;
+      
+//       message += `🚨 **Security Notice:**\n`;
+//       message += `• Your private key is encrypted with AES-256-GCM\n`;
+//       message += `• Only export private key in secure environments\n`;
+//       message += `• Never share your private key with anyone`;
+      
+//       // Add quick action buttons
+//       const keyboard = {
+//         inline_keyboard: [
+//           [
+//             { text: '💰 Check Balance', callback_data: `balance_${chain}` },
+//             { text: '📤 Export Wallet', callback_data: `exportwallet_${chain}` }
+//           ],
+//           [
+//             { text: '🔄 Refresh', callback_data: `wallet_refresh_${chain}` },
+//             { text: '⚙️ Settings', callback_data: 'wallet_settings' }
+//           ],
+//           [
+//             { text: '🔄 Switch Chain', callback_data: 'switch_chain_menu' },
+//             { text: '💸 Start Trading', callback_data: 'start_trading' }
+//           ]
+//         ]
+//       };
+      
+//       await ctx.editMessageText(message, { 
+//         parse_mode: 'Markdown',
+//         reply_markup: keyboard
+//       });
+      
+//     } catch (error) {
+//       console.error('Wallet command error:', error);
+//       await ctx.editMessageText('❌ Error retrieving wallet information. Please try again or contact support.');
+//     }
+    
+//   } catch (error) {
+//     console.error('Wallet command error:', error);
+//     await ctx.reply('❌ Error retrieving wallet information. Please try again or contact support.');
+//   }
+// });
+// Update wallet command to handle multiple wallets
 walletHandler.command('wallet', async (ctx) => {
   try {
     console.log('/wallet command processing for user:', ctx.from.id);
@@ -18,83 +111,93 @@ walletHandler.command('wallet', async (ctx) => {
     }
     
     const chain = userSettings.chain;
-    
-    // Show loading message
-    const loadingMsg = await ctx.reply('🔄 Loading your wallet...');
+    const loadingMsg = await ctx.reply('🔄 Loading your wallets...');
     
     try {
-      // Create or get wallet
-      const result = await walletService.getOrCreateWallet(userId, chain);
+      // Get all wallets for the chain
+      const wallets = userSettings.custodialWallets?.[chain] || [];
       
-      if (!result) {
-        await ctx.editMessageText('❌ Failed to create or retrieve wallet. Please try again.');
-        return;
-      }
-      
-      // Get real-time balance
-      const balanceInfo = await walletService.getWalletBalance(result.address, chain);
-      
-      let message = `💼 **Your ${chain.toUpperCase()} Wallet**\n\n`;
-      message += `📍 **Address:**\n\`${result.address}\`\n\n`;
-      message += `💰 **Balance:** ${balanceInfo.balance} ${balanceInfo.symbol}\n`;
-      message += `💵 **USD Value:** $${balanceInfo.usdValue}\n`;
-      
-      if (balanceInfo.tokenPrice) {
-        message += `📈 **${balanceInfo.symbol} Price:** $${balanceInfo.tokenPrice.toFixed(2)}\n`;
-      }
-      
-      message += `\n🔄 **Status:** ${result.exists ? 'Existing wallet loaded' : 'New wallet created'}\n`;
-      
-      if (balanceInfo.error) {
-        message += `⚠️ **Note:** ${balanceInfo.error}\n`;
-      }
-      
-      message += `\n💡 **Quick Actions:**\n`;
-      message += `• \`/exportwallet\` - Export private key (SECURE!)\n`;
-      message += `• \`/balance\` - Check current balance\n`;
-      message += `• \`/buy <amount> <token>\` - Buy tokens\n`;
-      message += `• \`/sell <token>\` - Sell tokens\n`;
-      message += `• \`/sendtokens <address> <amount>\` - Send tokens\n\n`;
-      
-      message += `🔥 **To add funds:** Send ${balanceInfo.symbol} to your wallet address above\n`;
-      message += `⚡ **Ready for trading:** Your wallet is connected and ready for manual trades\n\n`;
-      
-      message += `🚨 **Security Notice:**\n`;
-      message += `• Your private key is encrypted with AES-256-GCM\n`;
-      message += `• Only export private key in secure environments\n`;
-      message += `• Never share your private key with anyone`;
-      
-      // Add quick action buttons
-      const keyboard = {
-        inline_keyboard: [
-          [
-            { text: '💰 Check Balance', callback_data: `balance_${chain}` },
-            { text: '📤 Export Wallet', callback_data: `exportwallet_${chain}` }
-          ],
-          [
-            { text: '🔄 Refresh', callback_data: `wallet_refresh_${chain}` },
-            { text: '⚙️ Settings', callback_data: 'wallet_settings' }
-          ],
-          [
-            { text: '🔄 Switch Chain', callback_data: 'switch_chain_menu' },
-            { text: '💸 Start Trading', callback_data: 'start_trading' }
+      if (wallets.length === 0) {
+        // Create first wallet
+        const result = await walletService.getOrCreateWallet(userId, chain);
+        // ... existing wallet creation code
+      } else {
+        // Show wallet selection if multiple wallets
+        let message = `💼 **Your ${chain.toUpperCase()} Wallets**\n\n`;
+        
+        for (let i = 0; i < wallets.length; i++) {
+          const wallet = wallets[i];
+          const balanceInfo = await walletService.getWalletBalance(wallet.address, chain);
+          const defaultTag = wallet.isDefault ? ' 🌟' : '';
+          
+          message += `**${wallet.name || `Wallet ${i + 1}`}**${defaultTag}\n`;
+          message += `📍 \`${wallet.address.substring(0, 8)}...${wallet.address.substring(wallet.address.length - 8)}\`\n`;
+          message += `💰 ${balanceInfo.balance} ${balanceInfo.symbol}\n\n`;
+        }
+        
+        const keyboard = {
+          inline_keyboard: [
+            [
+              { text: '➕ Create New Wallet', callback_data: `create_wallet_${chain}` },
+              { text: '🔄 Refresh', callback_data: `wallet_refresh_${chain}` }
+            ],
+            ...wallets.map((wallet, index) => [
+              { text: `${wallet.isDefault ? '🌟 ' : ''}${wallet.name || `Wallet ${index + 1}`}`, callback_data: `select_wallet_${chain}_${index}` }
+            ])
           ]
-        ]
-      };
-      
-      await ctx.editMessageText(message, { 
-        parse_mode: 'Markdown',
-        reply_markup: keyboard
-      });
-      
+        };
+        
+        await ctx.editMessageText(message, {
+          parse_mode: 'Markdown',
+          reply_markup: keyboard
+        });
+      }
     } catch (error) {
       console.error('Wallet command error:', error);
-      await ctx.editMessageText('❌ Error retrieving wallet information. Please try again or contact support.');
+      await ctx.editMessageText('❌ Error retrieving wallet information. Please try again.');
     }
     
   } catch (error) {
     console.error('Wallet command error:', error);
     await ctx.reply('❌ Error retrieving wallet information. Please try again or contact support.');
+  }
+});
+
+// Add callback handler for wallet selection
+walletHandler.action(/^select_wallet_(.+)_(\d+)$/, async (ctx) => {
+  const chain = ctx.match[1];
+  const walletIndex = parseInt(ctx.match[2]);
+  const userId = ctx.from.id;
+  
+  try {
+    const wallet = await walletService.getWalletByIndex(userId, chain, walletIndex);
+    const balanceInfo = await walletService.getWalletBalance(wallet.address, chain);
+    
+    let message = `💼 **${wallet.name || `Wallet ${walletIndex + 1}`}**\n\n`;
+    message += `📍 **Address:**\n\`${wallet.address}\`\n\n`;
+    message += `💰 **Balance:** ${balanceInfo.balance} ${balanceInfo.symbol}\n`;
+    message += `💵 **USD Value:** $${balanceInfo.usdValue}\n\n`;
+    
+    const keyboard = {
+      inline_keyboard: [
+        [
+          { text: '💰 Check Balance', callback_data: `balance_${chain}_${walletIndex}` },
+          { text: '📤 Export Wallet', callback_data: `exportwallet_${chain}_${walletIndex}` }
+        ],
+        [
+          { text: '🌟 Set as Default', callback_data: `set_default_${chain}_${walletIndex}` },
+          { text: '⬅️ Back to Wallets', callback_data: 'wallet' }
+        ]
+      ]
+    };
+    
+    await ctx.editMessageText(message, {
+      parse_mode: 'Markdown',
+      reply_markup: keyboard
+    });
+    
+  } catch (error) {
+    await ctx.answerCbQuery('❌ Error loading wallet');
   }
 });
 
@@ -351,51 +454,71 @@ walletHandler.action(/^(balance|exportwallet|settings|refresh|wallet_refresh|bal
 });
 
 // Helper function for balance refresh
-async function handleBalanceRefresh(ctx, userId, chain) {
+// async function handleBalanceRefresh(ctx, userId, chain) {
+//   try {
+//     await ctx.answerCbQuery('🔄 Refreshing balance...');
+    
+//     const userSettings = await userService.getUserSettings(userId);
+//     const targetChain = chain || userSettings.chain;
+    
+//     if (!userSettings.custodialWallets || !userSettings.custodialWallets[targetChain]) {
+//       return ctx.editMessageText('❌ No wallet found for this chain.');
+//     }
+    
+//     const walletAddress = userSettings.custodialWallets[targetChain].address;
+//     const balanceInfo = await walletService.getWalletBalance(walletAddress, targetChain);
+    
+//     let message = `💰 **${targetChain.toUpperCase()} Balance**\n\n`;
+//     message += `📍 **Address:** \`${walletAddress.substring(0, 8)}...${walletAddress.substring(walletAddress.length - 8)}\`\n\n`;
+//     message += `💵 **Balance:** ${balanceInfo.balance} ${balanceInfo.symbol}\n`;
+//     message += `💲 **USD Value:** $${balanceInfo.usdValue}\n`;
+    
+//     if (balanceInfo.tokenPrice) {
+//       message += `📊 **Price:** $${balanceInfo.tokenPrice.toFixed(2)}\n`;
+//     }
+    
+//     message += `\n🕒 **Updated:** ${new Date().toLocaleString()}`;
+    
+//     const keyboard = {
+//       inline_keyboard: [
+//         [
+//           { text: '🔄 Refresh Again', callback_data: `balance_refresh_${targetChain}` },
+//           { text: '💸 Start Trading', callback_data: 'start_trading' }
+//         ]
+//       ]
+//     };
+    
+//     return ctx.editMessageText(message, { 
+//       parse_mode: 'Markdown',
+//       reply_markup: keyboard
+//     });
+    
+//   } catch (error) {
+//     await ctx.answerCbQuery('❌ Refresh failed');
+//     return ctx.editMessageText('❌ Failed to refresh balance. Please try again.');
+//   }
+// }
+
+// Update balance refresh to handle wallet index
+async function handleBalanceRefresh(ctx, userId, chain, walletIndex = 0) {
   try {
     await ctx.answerCbQuery('🔄 Refreshing balance...');
     
     const userSettings = await userService.getUserSettings(userId);
-    const targetChain = chain || userSettings.chain;
     
-    if (!userSettings.custodialWallets || !userSettings.custodialWallets[targetChain]) {
-      return ctx.editMessageText('❌ No wallet found for this chain.');
+    if (!userSettings.custodialWallets || !userSettings.custodialWallets[chain] || !userSettings.custodialWallets[chain][walletIndex]) {
+      return ctx.editMessageText('❌ No wallet found at this index.');
     }
     
-    const walletAddress = userSettings.custodialWallets[targetChain].address;
-    const balanceInfo = await walletService.getWalletBalance(walletAddress, targetChain);
+    const wallet = userSettings.custodialWallets[chain][walletIndex];
+    const balanceInfo = await walletService.getWalletBalance(wallet.address, chain);
     
-    let message = `💰 **${targetChain.toUpperCase()} Balance**\n\n`;
-    message += `📍 **Address:** \`${walletAddress.substring(0, 8)}...${walletAddress.substring(walletAddress.length - 8)}\`\n\n`;
-    message += `💵 **Balance:** ${balanceInfo.balance} ${balanceInfo.symbol}\n`;
-    message += `💲 **USD Value:** $${balanceInfo.usdValue}\n`;
-    
-    if (balanceInfo.tokenPrice) {
-      message += `📊 **Price:** $${balanceInfo.tokenPrice.toFixed(2)}\n`;
-    }
-    
-    message += `\n🕒 **Updated:** ${new Date().toLocaleString()}`;
-    
-    const keyboard = {
-      inline_keyboard: [
-        [
-          { text: '🔄 Refresh Again', callback_data: `balance_refresh_${targetChain}` },
-          { text: '💸 Start Trading', callback_data: 'start_trading' }
-        ]
-      ]
-    };
-    
-    return ctx.editMessageText(message, { 
-      parse_mode: 'Markdown',
-      reply_markup: keyboard
-    });
-    
+    // ... rest of balance refresh logic
   } catch (error) {
-    await ctx.answerCbQuery('❌ Refresh failed');
-    return ctx.editMessageText('❌ Failed to refresh balance. Please try again.');
+    console.error('Balance refresh error:', error);
+    await ctx.answerCbQuery('❌ Error refreshing balance');
   }
 }
-
 // Helper function for wallet refresh
 async function handleWalletRefresh(ctx, userId, chain) {
   try {

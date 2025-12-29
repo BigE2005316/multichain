@@ -21,19 +21,14 @@ async function executeTradeJob(job) {
       const user = await User.findById(f.userId);
       if (!user) continue;
 
-      const uFollow = user.follows.find(
+      // Use custom parameters if present, else fallback to user settings
+      const amountForUser = f.customAmount || (user.follows.find(
         (x) =>
           x.chain === chain &&
           x.address.toLowerCase() === log.leader.toLowerCase() &&
           x.active
-      );
-      if (!uFollow) continue;
-
-      const amountForUser = Risk.applyFollowerLimits(
-        parsed.amountIn || "0",
-        uFollow.ratio,
-        uFollow.maxUsdPerTrade
-      );
+      )?.ratio || 1) * (parsed.amountIn || "0");
+      const slippageBps = f.customSlippage || 50;
 
       let txid;
       if (chain === "EVM") {
@@ -41,14 +36,14 @@ async function executeTradeJob(job) {
           tokenIn: parsed.tokenIn,
           tokenOut: parsed.tokenOut,
           amountIn: amountForUser,
-          slippageBps: uFollow.slippageBps,
+          slippageBps,
         });
       } else {
         txid = await executeSolSwap({
           tokenIn: parsed.tokenIn,
           tokenOut: parsed.tokenOut,
           amountIn: amountForUser,
-          slippageBps: uFollow.slippageBps,
+          slippageBps,
         });
       }
 

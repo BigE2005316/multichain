@@ -83,31 +83,60 @@ const userSchema = new mongoose.Schema({
   },
 
   // Custodial wallets (bot creates/manages for user)
-  custodialWallets: {
-    solana: {
-      address: String,
-      privateKey: String,
-      mnemonic: String,
-      createdAt: { type: Date, default: Date.now },
-      balance: { type: Number, default: 0 },
-      totalReceived: { type: Number, default: 0 },
-      totalSent: { type: Number, default: 0 },
-      txCount: { type: Number, default: 0 },
-      lastUpdated: Date
-    },
-    evm: {
-      address: String,
-      privateKey: String,
-      mnemonic: String,
-      createdAt: { type: Date, default: Date.now },
-      balance: { type: Number, default: 0 },
-      totalReceived: { type: Number, default: 0 },
-      totalSent: { type: Number, default: 0 },
-      txCount: { type: Number, default: 0 },
-      lastUpdated: Date
-    }
-  },
+  // custodialWallets: {
+  //   solana: {
+  //     address: String,
+  //     privateKey: String,
+  //     mnemonic: String,
+  //     createdAt: { type: Date, default: Date.now },
+  //     balance: { type: Number, default: 0 },
+  //     totalReceived: { type: Number, default: 0 },
+  //     totalSent: { type: Number, default: 0 },
+  //     txCount: { type: Number, default: 0 },
+  //     lastUpdated: Date
+  //   },
+  //   evm: {
+  //     address: String,
+  //     privateKey: String,
+  //     mnemonic: String,
+  //     createdAt: { type: Date, default: Date.now },
+  //     balance: { type: Number, default: 0 },
+  //     totalReceived: { type: Number, default: 0 },
+  //     totalSent: { type: Number, default: 0 },
+  //     txCount: { type: Number, default: 0 },
+  //     lastUpdated: Date
+  //   }
+  // },
 
+  // Update the custodialWallets structure
+custodialWallets: {
+  solana: [{
+    address: String,
+    privateKey: String,
+    mnemonic: String,
+    createdAt: { type: Date, default: Date.now },
+    balance: { type: Number, default: 0 },
+    totalReceived: { type: Number, default: 0 },
+    totalSent: { type: Number, default: 0 },
+    txCount: { type: Number, default: 0 },
+    lastUpdated: Date,
+    isDefault: { type: Boolean, default: false },
+    name: String
+  }],
+  evm: [{
+    address: String,
+    privateKey: String,
+    mnemonic: String,
+    createdAt: { type: Date, default: Date.now },
+    balance: { type: Number, default: 0 },
+    totalReceived: { type: Number, default: 0 },
+    totalSent: { type: Number, default: 0 },
+    txCount: { type: Number, default: 0 },
+    lastUpdated: Date,
+    isDefault: { type: Boolean, default: false },
+    name: String
+  }]
+},
   // Copy-trading settings
   copySettings: {
     copySells: { type: Boolean, default: true },

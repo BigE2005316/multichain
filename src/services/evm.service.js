@@ -91,7 +91,7 @@ console.error(`[EVM] Copy trade failed for follower ${user?._id}:`, err.message)
 }
 
 
-async function pollEvmLeader(leader, followers) {
+async function pollEvmLeader(leader, followers, botInstance) {
 const state = await ensureState('EVM', leader);
 const page = 1; // most recent page
 const perPage = 25;

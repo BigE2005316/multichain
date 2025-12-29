@@ -465,9 +465,11 @@ formatNumber(num) {
   }
 
   getData(ctx, key = null) {
+    debugger
     if (key) {
       return ctx.session?.data?.[key];
     }
+    debugger
     return ctx.session?.data || {};
   }
 

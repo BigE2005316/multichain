@@ -1,10 +1,18 @@
 // Wallet Recovery Service - For users who lost access to old wallets
 const userService = require('../users/userService');
-const { Connection, PublicKey, LAMPORTS_PER_SOL } = require('@solana/web3.js');
+const { PublicKey, LAMPORTS_PER_SOL } = require('@solana/web3.js');
+const { getRPCManager } = require('./rpcManager');
 
 class WalletRecoveryService {
   constructor() {
-    this.solanaConnection = new Connection(process.env.SOLANA_RPC_URL || 'https://solana-mainnet.g.alchemy.com/v2/hhxZSRPIvPBbxIXvfWtoI');
+    this.rpcManager = getRPCManager();
+    // Register configured RPCs (if provided)
+    try {
+      const solUrl = process.env.SOLANA_RPC_URL || process.env.SOLANA_RPC || process.env.HELIUS_RPC_URL;
+      if (solUrl) this.rpcManager.addRPC('solana', solUrl, 1);
+    } catch (e) {
+      console.warn('Could not register SOL RPC for walletRecoveryService:', e.message);
+    }
   }
 
   // Get all wallet addresses associated with a user
@@ -92,13 +100,17 @@ class WalletRecoveryService {
       const publicKey = new PublicKey(address);
       
       // Get SOL balance
-      const solBalance = await this.solanaConnection.getBalance(publicKey);
+      const solBalance = await this.rpcManager.executeWithRetry('solana', async (rpc) => {
+        return await rpc.getBalance(publicKey);
+      }, 3);
       const solAmount = solBalance / LAMPORTS_PER_SOL;
 
       // Get token accounts
-      const tokenAccounts = await this.solanaConnection.getParsedTokenAccountsByOwner(publicKey, {
-        programId: new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA')
-      });
+      const tokenAccounts = await this.rpcManager.executeWithRetry('solana', async (rpc) => {
+        return await rpc.getParsedTokenAccountsByOwner(publicKey, {
+          programId: new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA')
+        });
+      }, 3);
 
       const tokens = [];
       for (const account of tokenAccounts.value) {
@@ -114,7 +126,9 @@ class WalletRecoveryService {
       }
 
       // Get recent transactions
-      const signatures = await this.solanaConnection.getSignaturesForAddress(publicKey, { limit: 5 });
+      const signatures = await this.rpcManager.executeWithRetry('solana', async (rpc) => {
+        return await rpc.getSignaturesForAddress(publicKey, { limit: 5 });
+      }, 3);
       const recentTxs = signatures.map(sig => ({
         signature: sig.signature,
         timestamp: new Date(sig.blockTime * 1000).toISOString(),

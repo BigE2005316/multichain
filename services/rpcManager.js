@@ -187,8 +187,10 @@ class RPCManager {
     let lastError;
     
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      let connEntry = null;
       try {
         const rpc = await this.getBestRPC(chain);
+        connEntry = this.connections[chain]?.find(c => c.connection === rpc) || null;
         const result = await operation(rpc);
         
         // Reset error count on success
@@ -198,6 +200,21 @@ class RPCManager {
         
       } catch (error) {
         lastError = error;
+        // If we have the rpc entry, increment its error count and possibly mark unhealthy
+        try {
+          if (typeof connEntry !== 'undefined' && connEntry) {
+            connEntry.errorCount = (connEntry.errorCount || 0) + 1;
+            // For TLS/SSL related errors, escalate quickly
+            const isTLS = (error.message || '').includes('ERR_SSL') || (error.message || '').toLowerCase().includes('tls');
+            if (isTLS || connEntry.errorCount >= 3) {
+              connEntry.healthy = false;
+              this.failedRPCs.add(connEntry.url);
+              console.warn(`⚠️ Marking RPC as failed: ${connEntry.url.substring(0, 60)}... due to error: ${error.message}`);
+            }
+          }
+        } catch (e) {
+          // ignore bookkeeping errors
+        }
         
         // Handle rate limiting
         if (error.code === 429 || error.message?.includes('429') || error.message?.includes('rate limit')) {

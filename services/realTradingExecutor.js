@@ -131,240 +131,598 @@ class RealTradingExecutor {
   }
 
   // Execute buy order on blockchain with enhanced error handling
-  async executeBuyOrder(userId, params) {
-    const tradeId = `buy_${userId}_${Date.now()}`;
+  // async executeBuyOrder(userId, params) {
+  //   const tradeId = `buy_${userId}_${Date.now()}`;
     
-    try {
-      console.log(`🟢 Executing BUY order ${tradeId}:`, {
-        token: params.tokenAddress,
-        amount: params.amount,
-        chain: params.chain
-      });
+  //   try {
+  //     console.log(`🟢 Executing BUY order ${tradeId}:`, {
+  //       token: params.tokenAddress,
+  //       amount: params.amount,
+  //       chain: params.chain
+  //     });
       
+  //     if (!this.initialized) {
+  //       await this.initialize();
+  //       if (!this.initialized) {
+  //         throw new Error('Trading executor failed to initialize');
+  //       }
+  //     }
+
+  //     const { tokenAddress, amount, chain, slippage = 5, wallet } = params;
+      
+  //     // Validate parameters
+  //     if (!tokenAddress || !amount || !chain) {
+  //       throw new Error('Missing required parameters: tokenAddress, amount, chain');
+  //     }
+
+  //     if (amount <= 0) {
+  //       throw new Error('Invalid amount: must be greater than 0');
+  //     }
+
+  //     // Get user wallet private key
+  //     const userData = await userService.getUserSettings(userId);
+  //     if (!userData.custodialWallets || !userData.custodialWallets[chain]) {
+  //       throw new Error(`No ${chain} wallet found for user`);
+  //     }
+
+  //     const privateKey = await walletService.getWalletPrivateKeyForTrading(userId, chain);
+  //     const walletAddress = userData.custodialWallets[chain].address;
+
+  //     // Check wallet balance
+  //     const balanceInfo = await walletService.getWalletBalance(walletAddress, chain);
+  //     const availableBalance = parseFloat(balanceInfo.balance);
+
+  //     if (availableBalance < amount) {
+  //       throw new Error(`Insufficient balance. Available: ${availableBalance}, Required: ${amount}`);
+  //     }
+
+  //     // Process dev fee
+  //     const feeInfo = await walletService.processTransactionWithFee(userId, chain, amount, 'buy');
+
+  //     let result;
+      
+  //     // Execute trade based on chain
+  //     switch (chain.toLowerCase()) {
+  //       case 'solana':
+  //         debugger
+  //         result = await this.executeSwap(privateKey,"So11111111111111111111111111111111111111112", tokenAddress, feeInfo.userAmount, slippage);
+  //         //result = await this.executeSolanaBuy(privateKey, tokenAddress, feeInfo.userAmount, slippage);
+  //         break;
+  //       case 'ethereum':
+  //       case 'bsc':
+  //       case 'polygon':
+  //       case 'arbitrum':
+  //       case 'base':
+  //         result = await this.executeEVMBuy(privateKey, tokenAddress, feeInfo.userAmount, slippage, chain);
+  //         break;
+  //       default:
+  //         throw new Error(`Unsupported chain: ${chain}`);
+  //     }
+
+  //     // Update trade statistics
+  //     this.updateStats(chain, 'buy', amount, true);
+
+  //     // Update user statistics and positions
+  //     await userService.updateStats(userId, {
+  //       amount: feeInfo.userAmount,
+  //       pnl: 0, // No PnL on buy
+  //       executed: true
+  //     });
+
+  //     // Add position tracking
+  //     const tokenInfo = await tokenDataService.getTokenInfo(tokenAddress, chain);
+  //     console.log('Token Info:', tokenInfo);
+  //     await userService.addPosition(userId, tokenAddress, result.tokensReceived, result.executedPrice, 'manual_buy',tokenInfo?.name, tokenInfo?.symbol);
+
+  //     console.log(`✅ BUY order ${tradeId} executed successfully`);
+
+  //     return {
+  //       success: true,
+  //       tradeId,
+  //       txHash: result.txHash,
+  //       executedPrice: result.executedPrice,
+  //       tokensReceived: result.tokensReceived,
+  //       amountSpent: feeInfo.userAmount,
+  //       devFee: feeInfo.devFee,
+  //       feeDisplay: feeInfo.feeDisplay,
+  //       gasUsed: result.gasUsed,
+  //       timestamp: Date.now(),
+  //       chain,
+  //       explorerUrl: this.getExplorerUrl(result.txHash, chain)
+  //     };
+
+  //   } catch (error) {
+  //     console.error(`❌ BUY order ${tradeId} failed:`, error);
+      
+  //     this.updateStats(params.chain, 'buy', params.amount, false);
+
+  //     return {
+  //       success: false,
+  //       tradeId,
+  //       error: error.message,
+  //       timestamp: Date.now(),
+  //       chain: params.chain
+  //     };
+  //   }
+  // }
+// Execute buy order on blockchain with enhanced error handling and wallet address selection
+async executeBuyOrder(userId, params) {
+  const tradeId = `buy_${userId}_${Date.now()}`;
+  debugger
+  try {
+    console.log(`🟢 Executing BUY order ${tradeId}:`, {
+      token: params.tokenAddress,
+      amount: params.amount,
+      chain: params.chain,
+      walletAddress: params.walletAddress
+    });
+    
+    if (!this.initialized) {
+      await this.initialize();
       if (!this.initialized) {
-        await this.initialize();
-        if (!this.initialized) {
-          throw new Error('Trading executor failed to initialize');
-        }
+        throw new Error('Trading executor failed to initialize');
       }
-
-      const { tokenAddress, amount, chain, slippage = 5, wallet } = params;
-      
-      // Validate parameters
-      if (!tokenAddress || !amount || !chain) {
-        throw new Error('Missing required parameters: tokenAddress, amount, chain');
-      }
-
-      if (amount <= 0) {
-        throw new Error('Invalid amount: must be greater than 0');
-      }
-
-      // Get user wallet private key
-      const userData = await userService.getUserSettings(userId);
-      if (!userData.custodialWallets || !userData.custodialWallets[chain]) {
-        throw new Error(`No ${chain} wallet found for user`);
-      }
-
-      const privateKey = await walletService.getWalletPrivateKeyForTrading(userId, chain);
-      const walletAddress = userData.custodialWallets[chain].address;
-
-      // Check wallet balance
-      const balanceInfo = await walletService.getWalletBalance(walletAddress, chain);
-      const availableBalance = parseFloat(balanceInfo.balance);
-
-      if (availableBalance < amount) {
-        throw new Error(`Insufficient balance. Available: ${availableBalance}, Required: ${amount}`);
-      }
-
-      // Process dev fee
-      const feeInfo = await walletService.processTransactionWithFee(userId, chain, amount, 'buy');
-
-      let result;
-      
-      // Execute trade based on chain
-      switch (chain.toLowerCase()) {
-        case 'solana':
-          debugger
-          result = await this.executeSwap(privateKey,"So11111111111111111111111111111111111111112", tokenAddress, feeInfo.userAmount, slippage);
-          //result = await this.executeSolanaBuy(privateKey, tokenAddress, feeInfo.userAmount, slippage);
-          break;
-        case 'ethereum':
-        case 'bsc':
-        case 'polygon':
-        case 'arbitrum':
-        case 'base':
-          result = await this.executeEVMBuy(privateKey, tokenAddress, feeInfo.userAmount, slippage, chain);
-          break;
-        default:
-          throw new Error(`Unsupported chain: ${chain}`);
-      }
-
-      // Update trade statistics
-      this.updateStats(chain, 'buy', amount, true);
-
-      // Update user statistics and positions
-      await userService.updateStats(userId, {
-        amount: feeInfo.userAmount,
-        pnl: 0, // No PnL on buy
-        executed: true
-      });
-
-      // Add position tracking
-      const tokenInfo = await tokenDataService.getTokenInfo(tokenAddress, chain);
-      console.log('Token Info:', tokenInfo);
-      await userService.addPosition(userId, tokenAddress, result.tokensReceived, result.executedPrice, 'manual_buy',tokenInfo?.name, tokenInfo?.symbol);
-
-      console.log(`✅ BUY order ${tradeId} executed successfully`);
-
-      return {
-        success: true,
-        tradeId,
-        txHash: result.txHash,
-        executedPrice: result.executedPrice,
-        tokensReceived: result.tokensReceived,
-        amountSpent: feeInfo.userAmount,
-        devFee: feeInfo.devFee,
-        feeDisplay: feeInfo.feeDisplay,
-        gasUsed: result.gasUsed,
-        timestamp: Date.now(),
-        chain,
-        explorerUrl: this.getExplorerUrl(result.txHash, chain)
-      };
-
-    } catch (error) {
-      console.error(`❌ BUY order ${tradeId} failed:`, error);
-      
-      this.updateStats(params.chain, 'buy', params.amount, false);
-
-      return {
-        success: false,
-        tradeId,
-        error: error.message,
-        timestamp: Date.now(),
-        chain: params.chain
-      };
     }
+
+    const { tokenAddress, amount, chain, slippage = 5, walletAddress } = params;
+    
+    // Validate parameters
+    if (!tokenAddress || !amount || !chain) {
+      throw new Error('Missing required parameters: tokenAddress, amount, chain');
+    }
+
+    if (amount <= 0) {
+      throw new Error('Invalid amount: must be greater than 0');
+    }
+
+    // Get user wallet data with multi-wallet support
+    const userData = await userService.getUserSettings(userId);
+    if (!userData.custodialWallets || !userData.custodialWallets[chain]) {
+      throw new Error(`No ${chain} wallet found for user`);
+    }
+
+    let wallets = userData.custodialWallets[chain];
+    
+    // Handle both array and legacy single wallet format
+    if (!Array.isArray(wallets)) {
+      wallets = [wallets];
+    }
+
+    // Get specific wallet by address or default wallet
+    let selectedWallet;
+    let walletIndex = null;
+    
+    if (walletAddress) {
+      // Find wallet by address
+      walletIndex = wallets.findIndex(w => w.address === walletAddress);
+      selectedWallet = wallets[walletIndex];
+      
+      if (!selectedWallet) {
+        throw new Error(`Wallet with address ${walletAddress} not found`);
+      }
+    } else {
+      // Use default wallet or first wallet
+      selectedWallet = wallets.find(w => w.isDefault) || wallets[0];
+      walletIndex = wallets.indexOf(selectedWallet);
+    }
+
+    if (!selectedWallet) {
+      throw new Error('No wallet found for trading');
+    }
+
+    const selectedWalletAddress = selectedWallet.address;
+    console.log(`💼 Using wallet: ${selectedWallet.name || 'Wallet'} (${selectedWalletAddress.substring(0, 8)}...${selectedWalletAddress.substring(selectedWalletAddress.length - 8)})`);
+
+    // Get private key for the selected wallet
+    const privateKey = await walletService.getWalletPrivateKeyForTrading(userId, chain, walletIndex);
+
+    debugger
+    // Check wallet balance
+    const balanceInfo = await walletService.getWalletBalance(selectedWalletAddress, chain);
+    const availableBalance = parseFloat(balanceInfo.balance);
+
+    debugger
+    if (availableBalance < amount) {
+      throw new Error(`Insufficient balance in selected wallet. Available: ${availableBalance}, Required: ${amount}`);
+    }
+
+    // Process dev fee
+    const feeInfo = await walletService.processTransactionWithFee(userId, chain, amount, 'buy');
+
+    let result;
+    
+    // Execute trade based on chain
+    switch (chain.toLowerCase()) {
+      case 'solana':
+        result = await this.executeSwap(privateKey, "So11111111111111111111111111111111111111112", tokenAddress, feeInfo.userAmount, slippage);
+        break;
+      case 'ethereum':
+      case 'bsc':
+      case 'polygon':
+      case 'arbitrum':
+      case 'base':
+        result = await this.executeEVMBuy(privateKey, tokenAddress, feeInfo.userAmount, slippage, chain);
+        break;
+      default:
+        throw new Error(`Unsupported chain: ${chain}`);
+    }
+
+    // Update trade statistics
+    this.updateStats(chain, 'buy', amount, true);
+
+    // Update user statistics and positions
+    await userService.updateStats(userId, {
+      amount: feeInfo.userAmount,
+      pnl: 0, // No PnL on buy
+      executed: true
+    });
+
+    // Add position tracking with wallet info
+    const tokenInfo = await tokenDataService.getTokenInfo(tokenAddress, chain);
+    await userService.addPosition(
+      userId, 
+      tokenAddress, 
+      result.tokensReceived, 
+      result.executedPrice, 
+      'manual_buy',
+      tokenInfo?.name, 
+      tokenInfo?.symbol,
+      {
+        walletAddress: selectedWalletAddress,
+        walletName: selectedWallet.name || 'Wallet'
+      }
+    );
+
+    // Update wallet stats
+    selectedWallet.totalSent = (selectedWallet.totalSent || 0) + feeInfo.userAmount;
+    selectedWallet.txCount = (selectedWallet.txCount || 0) + 1;
+    selectedWallet.lastUpdated = new Date().toISOString();
+    
+    // Update the specific wallet in the array
+    if (walletIndex !== null && walletIndex >= 0) {
+      userData.custodialWallets[chain][walletIndex] = selectedWallet;
+      await userService.saveUserData(userId, userData);
+    }
+
+    console.log(`✅ BUY order ${tradeId} executed successfully using wallet ${selectedWallet.name || 'Wallet'}`);
+
+    return {
+      success: true,
+      tradeId,
+      txHash: result.txHash,
+      executedPrice: result.executedPrice,
+      tokensReceived: result.tokensReceived,
+      amountSpent: feeInfo.userAmount,
+      devFee: feeInfo.devFee,
+      feeDisplay: feeInfo.feeDisplay,
+      gasUsed: result.gasUsed,
+      timestamp: Date.now(),
+      chain,
+      wallet: {
+        address: selectedWalletAddress,
+        name: selectedWallet.name || 'Wallet',
+        index: walletIndex
+      },
+      explorerUrl: this.getExplorerUrl(result.txHash, chain)
+    };
+
+  } catch (error) {
+    console.error(`❌ BUY order ${tradeId} failed:`, error);
+    
+    this.updateStats(params.chain, 'buy', params.amount, false);
+
+    return {
+      success: false,
+      tradeId,
+      error: error.message,
+      timestamp: Date.now(),
+      chain: params.chain,
+      wallet: params.walletAddress ? {
+        address: params.walletAddress
+      } : null
+    };
   }
+}
 
   // Execute sell order on blockchain with enhanced error handling
-  async executeSellOrder(userId, params) {
-    const tradeId = `sell_${userId}_${Date.now()}`;
+  // async executeSellOrder(userId, params) {
+  //   const tradeId = `sell_${userId}_${Date.now()}`;
     
-    try {
-      console.log(`🔴 Executing SELL order ${tradeId}:`, {
-        token: params.tokenAddress,
-        percentage: params.percentage,
-        chain: params.chain
-      });
+  //   try {
+  //     console.log(`🔴 Executing SELL order ${tradeId}:`, {
+  //       token: params.tokenAddress,
+  //       percentage: params.percentage,
+  //       chain: params.chain
+  //     });
       
+  //     if (!this.initialized) {
+  //       await this.initialize();
+  //       if (!this.initialized) {
+  //         throw new Error('Trading executor failed to initialize');
+  //       }
+  //     }
+
+  //     const { tokenAddress, percentage = 100, amount, chain, slippage = 5 } = params;
+      
+  //     // Get user position
+  //     const positions = await userService.getUserPositions(userId);
+  //     const position = positions.find(p => 
+  //       p.tokenAddress.toLowerCase() === tokenAddress.toLowerCase() && 
+  //       p.chain === chain
+  //     );
+
+  //     if (!position) {
+  //       throw new Error('No position found for this token');
+  //     }
+
+  //     // Calculate sell amount
+  //     let sellAmount;
+  //     if (amount) {
+  //       sellAmount = amount;
+  //     } else {
+  //       sellAmount = (position.amount * percentage) / 100;
+  //     }
+
+  //     if (sellAmount > position.amount) {
+  //       throw new Error('Insufficient token balance');
+  //     }
+
+  //     // Get private key
+  //     const privateKey = await walletService.getWalletPrivateKeyForTrading(userId, chain);
+
+  //     let result;
+      
+  //     // Execute trade based on chain
+  //     switch (chain.toLowerCase()) {
+  //       case 'solana':
+  //         result = await this.executeSolanaSell(privateKey, tokenAddress, sellAmount, slippage);
+  //         break;
+  //       case 'ethereum':
+  //       case 'bsc':
+  //       case 'polygon':
+  //       case 'arbitrum':
+  //       case 'base':
+  //         result = await this.executeEVMSell(privateKey, tokenAddress, sellAmount, slippage, chain);
+  //         break;
+  //       default:
+  //         throw new Error(`Unsupported chain: ${chain}`);
+  //     }
+
+  //     // Calculate PnL
+  //     const sellValue = result.nativeReceived;
+  //     const buyValue = sellAmount * position.avgBuyPrice;
+  //     const pnl = sellValue - buyValue;
+  //     const pnlPercentage = ((sellValue - buyValue) / buyValue) * 100;
+
+  //     // Process dev fee
+  //     const feeInfo = await walletService.processTransactionWithFee(userId, chain, sellValue, 'sell');
+
+  //     // Update trade statistics
+  //     this.updateStats(chain, 'sell', sellValue, true);
+
+  //     // Update user statistics
+  //     await userService.updateStats(userId, {
+  //       amount: sellValue,
+  //       pnl,
+  //       executed: true
+  //     });
+
+  //     // Update position
+  //     await userService.sellPosition(userId, tokenAddress, percentage, result.executedPrice);
+
+  //     console.log(`✅ SELL order ${tradeId} executed successfully`);
+
+  //     return {
+  //       success: true,
+  //       tradeId,
+  //       txHash: result.txHash,
+  //       executedPrice: result.executedPrice,
+  //       tokensSold: sellAmount,
+  //       nativeReceived: result.nativeReceived,
+  //       devFee: feeInfo.devFee,
+  //       feeDisplay: feeInfo.feeDisplay,
+  //       pnl,
+  //       pnlPercentage,
+  //       gasUsed: result.gasUsed,
+  //       timestamp: Date.now(),
+  //       chain,
+  //       explorerUrl: this.getExplorerUrl(result.txHash, chain)
+  //     };
+
+  //   } catch (error) {
+  //     console.error(`❌ SELL order ${tradeId} failed:`, error);
+      
+  //     this.updateStats(params.chain, 'sell', 0, false);
+
+  //     return {
+  //       success: false,
+  //       tradeId,
+  //       error: error.message,
+  //       timestamp: Date.now(),
+  //       chain: params.chain
+  //     };
+  //   }
+  // }
+// Execute sell order on blockchain with enhanced error handling and wallet address selection
+async executeSellOrder(userId, params) {
+  const tradeId = `sell_${userId}_${Date.now()}`;
+  
+  try {
+    console.log(`🔴 Executing SELL order ${tradeId}:`, {
+      token: params.tokenAddress,
+      percentage: params.percentage,
+      chain: params.chain,
+      walletAddress: params.walletAddress
+    });
+    
+    if (!this.initialized) {
+      await this.initialize();
       if (!this.initialized) {
-        await this.initialize();
-        if (!this.initialized) {
-          throw new Error('Trading executor failed to initialize');
-        }
+        throw new Error('Trading executor failed to initialize');
       }
-
-      const { tokenAddress, percentage = 100, amount, chain, slippage = 5 } = params;
-      
-      // Get user position
-      const positions = await userService.getUserPositions(userId);
-      const position = positions.find(p => 
-        p.tokenAddress.toLowerCase() === tokenAddress.toLowerCase() && 
-        p.chain === chain
-      );
-
-      if (!position) {
-        throw new Error('No position found for this token');
-      }
-
-      // Calculate sell amount
-      let sellAmount;
-      if (amount) {
-        sellAmount = amount;
-      } else {
-        sellAmount = (position.amount * percentage) / 100;
-      }
-
-      if (sellAmount > position.amount) {
-        throw new Error('Insufficient token balance');
-      }
-
-      // Get private key
-      const privateKey = await walletService.getWalletPrivateKeyForTrading(userId, chain);
-
-      let result;
-      
-      // Execute trade based on chain
-      switch (chain.toLowerCase()) {
-        case 'solana':
-          result = await this.executeSolanaSell(privateKey, tokenAddress, sellAmount, slippage);
-          break;
-        case 'ethereum':
-        case 'bsc':
-        case 'polygon':
-        case 'arbitrum':
-        case 'base':
-          result = await this.executeEVMSell(privateKey, tokenAddress, sellAmount, slippage, chain);
-          break;
-        default:
-          throw new Error(`Unsupported chain: ${chain}`);
-      }
-
-      // Calculate PnL
-      const sellValue = result.nativeReceived;
-      const buyValue = sellAmount * position.avgBuyPrice;
-      const pnl = sellValue - buyValue;
-      const pnlPercentage = ((sellValue - buyValue) / buyValue) * 100;
-
-      // Process dev fee
-      const feeInfo = await walletService.processTransactionWithFee(userId, chain, sellValue, 'sell');
-
-      // Update trade statistics
-      this.updateStats(chain, 'sell', sellValue, true);
-
-      // Update user statistics
-      await userService.updateStats(userId, {
-        amount: sellValue,
-        pnl,
-        executed: true
-      });
-
-      // Update position
-      await userService.sellPosition(userId, tokenAddress, percentage, result.executedPrice);
-
-      console.log(`✅ SELL order ${tradeId} executed successfully`);
-
-      return {
-        success: true,
-        tradeId,
-        txHash: result.txHash,
-        executedPrice: result.executedPrice,
-        tokensSold: sellAmount,
-        nativeReceived: result.nativeReceived,
-        devFee: feeInfo.devFee,
-        feeDisplay: feeInfo.feeDisplay,
-        pnl,
-        pnlPercentage,
-        gasUsed: result.gasUsed,
-        timestamp: Date.now(),
-        chain,
-        explorerUrl: this.getExplorerUrl(result.txHash, chain)
-      };
-
-    } catch (error) {
-      console.error(`❌ SELL order ${tradeId} failed:`, error);
-      
-      this.updateStats(params.chain, 'sell', 0, false);
-
-      return {
-        success: false,
-        tradeId,
-        error: error.message,
-        timestamp: Date.now(),
-        chain: params.chain
-      };
     }
+
+    const { tokenAddress, percentage = 100, amount, chain, slippage = 5, walletAddress = null } = params;
+    
+    // Get user wallet data with multi-wallet support
+    const userData = await userService.getUserSettings(userId);
+    if (!userData.custodialWallets || !userData.custodialWallets[chain]) {
+      throw new Error(`No ${chain} wallet found for user`);
+    }
+
+    let wallets = userData.custodialWallets[chain];
+    
+    // Handle both array and legacy single wallet format
+    if (!Array.isArray(wallets)) {
+      wallets = [wallets];
+    }
+
+    // Get specific wallet by address or default wallet
+    let selectedWallet;
+    let walletIndex = null;
+    
+    if (walletAddress) {
+      // Find wallet by address
+      walletIndex = wallets.findIndex(w => w.address === walletAddress);
+      selectedWallet = wallets[walletIndex];
+      
+      if (!selectedWallet) {
+        throw new Error(`Wallet with address ${walletAddress} not found`);
+      }
+    } else {
+      // Use default wallet or first wallet
+      selectedWallet = wallets.find(w => w.isDefault) || wallets[0];
+      walletIndex = wallets.indexOf(selectedWallet);
+    }
+
+    if (!selectedWallet) {
+      throw new Error('No wallet found for trading');
+    }
+
+    const selectedWalletAddress = selectedWallet.address;
+    console.log(`💼 Using wallet for sell: ${selectedWallet.name || 'Wallet'} (${selectedWalletAddress.substring(0, 8)}...${selectedWalletAddress.substring(selectedWalletAddress.length - 8)})`);
+    
+    // Get user position for the specific wallet
+    const positions = await userService.getUserPositions(userId);
+    const position = positions.find(p => 
+      p.tokenAddress.toLowerCase() === tokenAddress.toLowerCase() && 
+      p.chain === chain &&
+      (!p.walletAddress || p.walletAddress === selectedWalletAddress) // Match wallet if tracked
+    );
+
+    if (!position) {
+      throw new Error('No position found for this token in the selected wallet');
+    }
+
+    // Calculate sell amount
+    let sellAmount;
+    if (amount) {
+      sellAmount = amount;
+    } else {
+      sellAmount = (position.amount * percentage) / 100;
+    }
+
+    if (sellAmount > position.amount) {
+      throw new Error('Insufficient token balance in selected wallet');
+    }
+
+    // Get private key for the selected wallet
+    const privateKey = await walletService.getWalletPrivateKeyForTrading(userId, chain, walletIndex);
+
+    let result;
+    
+    // Execute trade based on chain
+    switch (chain.toLowerCase()) {
+      case 'solana':
+        result = await this.executeSolanaSell(privateKey, tokenAddress, sellAmount, slippage);
+        break;
+      case 'ethereum':
+      case 'bsc':
+      case 'polygon':
+      case 'arbitrum':
+      case 'base':
+        result = await this.executeEVMSell(privateKey, tokenAddress, sellAmount, slippage, chain);
+        break;
+      default:
+        throw new Error(`Unsupported chain: ${chain}`);
+    }
+
+    // Calculate PnL
+    const sellValue = result.nativeReceived;
+    const buyValue = sellAmount * position.avgBuyPrice;
+    const pnl = sellValue - buyValue;
+    const pnlPercentage = ((sellValue - buyValue) / buyValue) * 100;
+
+    // Process dev fee
+    const feeInfo = await walletService.processTransactionWithFee(userId, chain, sellValue, 'sell');
+
+    // Update trade statistics
+    this.updateStats(chain, 'sell', sellValue, true);
+
+    // Update user statistics
+    await userService.updateStats(userId, {
+      amount: sellValue,
+      pnl,
+      executed: true
+    });
+
+    // Update position
+    await userService.sellPosition(userId, tokenAddress, percentage, result.executedPrice, {
+      walletAddress: selectedWalletAddress
+    });
+
+    // Update wallet stats
+    selectedWallet.totalReceived = (selectedWallet.totalReceived || 0) + result.nativeReceived;
+    selectedWallet.txCount = (selectedWallet.txCount || 0) + 1;
+    selectedWallet.lastUpdated = new Date().toISOString();
+    
+    // Update the specific wallet in the array
+    if (walletIndex !== null && walletIndex >= 0) {
+      userData.custodialWallets[chain][walletIndex] = selectedWallet;
+      await userService.saveUserData(userId, userData);
+    }
+
+    console.log(`✅ SELL order ${tradeId} executed successfully using wallet ${selectedWallet.name || 'Wallet'}`);
+
+    return {
+      success: true,
+      tradeId,
+      txHash: result.txHash,
+      executedPrice: result.executedPrice,
+      tokensSold: sellAmount,
+      nativeReceived: result.nativeReceived,
+      devFee: feeInfo.devFee,
+      feeDisplay: feeInfo.feeDisplay,
+      pnl,
+      pnlPercentage,
+      gasUsed: result.gasUsed,
+      timestamp: Date.now(),
+      chain,
+      wallet: {
+        address: selectedWalletAddress,
+        name: selectedWallet.name || 'Wallet',
+        index: walletIndex
+      },
+      explorerUrl: this.getExplorerUrl(result.txHash, chain)
+    };
+
+  } catch (error) {
+    console.error(`❌ SELL order ${tradeId} failed:`, error);
+    
+    this.updateStats(params.chain, 'sell', 0, false);
+
+    return {
+      success: false,
+      tradeId,
+      error: error.message,
+      timestamp: Date.now(),
+      chain: params.chain,
+      wallet: params.walletAddress ? {
+        address: params.walletAddress
+      } : null
+    };
   }
+}
 
   // Enhanced Solana buy via Jupiter with better error handling
   // async executeSolanaBuy(privateKeyHex, tokenAddress, amount, slippage) {
@@ -556,51 +914,359 @@ async executeSolanaBuy(privateKeyHex, tokenAddress, amount, slippage) {
 // 🔹 Fetch decimals for a token mint (fallback for unofficial tokens)
 
 // ✅ Get token decimals (using Jupiter token list first, fallback to chain if not found)
+// async getTokenDecimals(connection, mintAddress) {
+//   try {
+//     debugger;
+//     const now = Date.now();
+//         let tokenList
+
+//   // if cached and still valid, return it
+//   if (this.tokenListCache.data && now - this.tokenListCache.timestamp < CACHE_DURATION) {
+//     tokenList = this.tokenListCache.data;
+//   }
+//   else{
+//     // 1. Check Jupiter token list
+//     debugger
+//     const response = await axios.get("https://token.jup.ag/all");
+//     tokenList = response.data;
+//         debugger
+
+//     // cache it
+//     this.tokenListCache = {
+//       data: response.data,
+//       timestamp: now
+//     };
+//   }
+
+//     const tokenInfo = tokenList.find(t => t.address === mintAddress);
+//     if (tokenInfo) {
+//       return tokenInfo.decimals;
+//     }
+
+//         debugger
+
+//     // 2. Fallback → on-chain account info
+//     const mintPublicKey = new PublicKey(mintAddress);
+//     const accountInfo = await connection.getParsedAccountInfo(mintPublicKey);
+
+//     if (accountInfo?.value?.data?.parsed?.info?.decimals !== undefined) {
+//       return accountInfo.value.data.parsed.info.decimals;
+//     }
+
+//     throw new Error("Decimals not found for mint " + mintAddress);
+//   } catch (err) {
+//         debugger;
+
+//     console.error(`❌ Failed to fetch decimals for ${mintAddress}:`, err.message);
+//     throw err;
+//   }
+// }
+// ✅ Get token decimals using Jupiter Lite API v2 search endpoint
 async getTokenDecimals(connection, mintAddress) {
   try {
     debugger;
+    console.log(`🔍 Getting decimals for token: ${mintAddress}`);
+    
     const now = Date.now();
-        let tokenList
+    let tokenInfo = null;
 
-  // if cached and still valid, return it
-  if (this.tokenListCache.data && now - this.tokenListCache.timestamp < CACHE_DURATION) {
-    tokenList = this.tokenListCache.data;
-  }
-  else{
-    // 1. Check Jupiter token list
-    debugger
-    const response = await axios.get("https://token.jup.ag/all");
-    tokenList = response.data;
-        debugger
-
-    // cache it
-    this.tokenListCache = {
-      data: response.data,
-      timestamp: now
-    };
-  }
-
-    const tokenInfo = tokenList.find(t => t.address === mintAddress);
-    if (tokenInfo) {
-      return tokenInfo.decimals;
+    // Step 1: Check cache first
+    if (this.tokenListCache.data && now - this.tokenListCache.timestamp < CACHE_DURATION) {
+      tokenInfo = this.tokenListCache.data[mintAddress];
+      if (tokenInfo) {
+        console.log(`✅ Found decimals in cache: ${tokenInfo.decimals}`);
+        return tokenInfo.decimals;
+      }
     }
 
-        debugger
+    // Step 2: Try Jupiter Lite API v2 search endpoint
+    try {
+      console.log(`🌐 Searching Jupiter Lite API for: ${mintAddress}`);
+      
+      const searchUrl = `https://lite-api.jup.ag/tokens/v2/search?query=${mintAddress}`;
+      const response = await axios.get(searchUrl, {
+        timeout: 10000,
+        headers: {
+          'User-Agent': 'SmileSnipperBot/1.0',
+          'Accept': 'application/json'
+        }
+      });
 
-    // 2. Fallback → on-chain account info
-    const mintPublicKey = new PublicKey(mintAddress);
-    const accountInfo = await connection.getParsedAccountInfo(mintPublicKey);
+      if (response.data && Array.isArray(response.data) && response.data.length > 0) {
+        // Find exact match by mint address
+        const exactMatch = response.data.find(token => 
+          token.id === mintAddress || token.address === mintAddress
+        );
 
-    if (accountInfo?.value?.data?.parsed?.info?.decimals !== undefined) {
-      return accountInfo.value.data.parsed.info.decimals;
+        if (exactMatch && exactMatch.decimals !== undefined) {
+          console.log(`✅ Found token in Jupiter Lite API:`, {
+            name: exactMatch.name,
+            symbol: exactMatch.symbol,
+            decimals: exactMatch.decimals
+          });
+
+          // Cache the result
+          if (!this.tokenListCache.data) {
+            this.tokenListCache.data = {};
+          }
+          this.tokenListCache.data[mintAddress] = {
+            decimals: exactMatch.decimals,
+            name: exactMatch.name,
+            symbol: exactMatch.symbol
+          };
+          this.tokenListCache.timestamp = now;
+
+          return exactMatch.decimals;
+        }
+      }
+
+      console.warn(`⚠️ Token not found in Jupiter Lite API search results`);
+    } catch (searchError) {
+      console.warn(`⚠️ Jupiter Lite API search failed:`, searchError.message);
     }
 
-    throw new Error("Decimals not found for mint " + mintAddress);
-  } catch (err) {
-        debugger;
+    // Step 3: Fallback to multiple Jupiter endpoints
+    const fallbackEndpoints = [
+      "https://token.jup.ag/all",
+      "https://cache.jup.ag/tokens",
+      "https://api.jup.ag/tokens"
+    ];
 
-    console.error(`❌ Failed to fetch decimals for ${mintAddress}:`, err.message);
-    throw err;
+    for (const endpoint of fallbackEndpoints) {
+      try {
+        console.log(`🔄 Trying fallback endpoint: ${endpoint}`);
+        
+        const response = await axios.get(endpoint, {
+          timeout: 8000,
+          headers: {
+            'User-Agent': 'SmileSnipperBot/1.0',
+            'Accept': 'application/json'
+          }
+        });
+        
+        let tokenList = Array.isArray(response.data) ? response.data : 
+                       response.data.tokens || response.data;
+        
+        if (tokenList && Array.isArray(tokenList)) {
+          const tokenInfo = tokenList.find(t => 
+            t.address === mintAddress || t.mint === mintAddress || t.id === mintAddress
+          );
+          
+          if (tokenInfo && tokenInfo.decimals !== undefined) {
+            console.log(`✅ Found decimals in fallback endpoint: ${tokenInfo.decimals}`);
+            
+            // Cache the result
+            if (!this.tokenListCache.data) {
+              this.tokenListCache.data = {};
+            }
+            this.tokenListCache.data[mintAddress] = {
+              decimals: tokenInfo.decimals,
+              name: tokenInfo.name,
+              symbol: tokenInfo.symbol
+            };
+            this.tokenListCache.timestamp = now;
+            
+            return tokenInfo.decimals;
+          }
+        }
+      } catch (error) {
+        console.warn(`⚠️ Fallback endpoint ${endpoint} failed:`, error.message);
+        continue;
+      }
+    }
+
+    debugger;
+
+    // Step 4: On-chain lookup as last resort
+    console.log(`🔗 Trying on-chain lookup for: ${mintAddress}`);
+    try {
+      const mintPublicKey = new PublicKey(mintAddress);
+      const accountInfo = await connection.getParsedAccountInfo(mintPublicKey);
+      
+      if (accountInfo?.value?.data?.parsed?.info?.decimals !== undefined) {
+        const decimals = accountInfo.value.data.parsed.info.decimals;
+        console.log(`✅ Found decimals on-chain: ${decimals}`);
+        
+        // Cache the on-chain result
+        if (!this.tokenListCache.data) {
+          this.tokenListCache.data = {};
+        }
+        this.tokenListCache.data[mintAddress] = {
+          decimals: decimals,
+          name: 'Unknown',
+          symbol: 'UNKNOWN'
+        };
+        this.tokenListCache.timestamp = now;
+        
+        return decimals;
+      }
+    } catch (onChainError) {
+      console.warn(`⚠️ On-chain lookup failed:`, onChainError.message);
+    }
+
+    // Step 5: Hardcoded common tokens
+    const hardcodedDecimals = this.getHardcodedTokenDecimals(mintAddress);
+    if (hardcodedDecimals !== null) {
+      console.log(`✅ Using hardcoded decimals: ${hardcodedDecimals}`);
+      return hardcodedDecimals;
+    }
+
+    // Step 6: Default fallback
+    console.warn(`⚠️ Using default decimals (9) for unknown token: ${mintAddress}`);
+    return 9; // Most Solana tokens use 9 decimals
+
+  } catch (error) {
+    debugger;
+    console.error(`❌ All methods failed for ${mintAddress}:`, error.message);
+    
+    // Try hardcoded decimals as absolute last resort
+    const hardcodedDecimals = this.getHardcodedTokenDecimals(mintAddress);
+    if (hardcodedDecimals !== null) {
+      console.log(`✅ Using hardcoded decimals as last resort: ${hardcodedDecimals}`);
+      return hardcodedDecimals;
+    }
+    
+    console.warn(`⚠️ Using default decimals (9) as final fallback`);
+    return 9;
+  }
+}
+
+// Enhanced hardcoded token decimals for common tokens
+getHardcodedTokenDecimals(mintAddress) {
+  const knownTokens = {
+    // Native SOL (wrapped)
+    'So11111111111111111111111111111111111111112': 9,
+    // Major stablecoins
+    'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': 6, // USDC
+    'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': 6, // USDT
+    'Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr': 6, // USDC (old)
+    // Popular meme tokens
+    'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263': 5, // BONK
+    'EKpQGSJtjMFqKZ9KQanSqYXRcf8fBopzLHYxdM65zcjm': 6, // WIF
+    'ukHH6c7mMyiWCf1b9pnWe25TSpkDDt3H5pQZgZ74J82': 9, // BOME
+    // DeFi tokens
+    '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R': 6, // RAY (Raydium)
+    'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN': 6, // JUP (Jupiter)
+    'orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE': 6, // ORCA
+    'rndrizKT3MK1iimdxRdWabcF7Zg7AR5T4nud4EkHBof': 9, // RND
+    // Gaming tokens
+    'ATLASXmbPQxBUYbxPsV97usA3fPQYEqzQBUHgiFCUsXx': 8, // ATLAS
+    'poLisWXnNRwC6oBu1vHiuKQzFjGL4XDSu4g9qjz9qVk': 8, // POLIS
+    // Other popular tokens
+    '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU': 9, // SAMO
+    'SRMuApVNdxXokk5GT7XD5cUUgXMBCoAz2LHeuAoKWRt': 6, // SRM
+    '8HGyAAB1yoM1ttS7pXjHMa3dukTFGQggnFFH3hJZgzQh': 6, // COPE
+    'kinXdEcpDQeHPEuQnqmUgtYykqKGVFq6CeVX5iAHJq6': 5, // KIN
+    'mSoLzYCxHdYgdziU2hgzX6GaHNYnvNNnfhwZFUKSJ1': 9, // mSOL
+    'StepAscQoEioFxxWGnh2sLBDFp9d8rvKz2Yp39iDpyT': 9, // STEP
+    // Bridge tokens
+    '9n4nbM75f5Ui33ZbPYXn59EwSgE8CGsHtAeTH5YFeJ9E': 6, // BTC (Wormhole)
+    '2FPyTwcZLUg1MDrwsyoP4D6s1tM7hAkHYRjkNb5w6Pxk': 6, // ETH (Wormhole)
+    // Pump tokens from the response
+    'pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn': 6, // PUMP
+    'Eg2ymQ2aQqjMcibnmTt8erC6Tvk9PVpJZCxvVPJz2agu': 6, // PUMPCADE
+    '5TfqNKZbn9AnNtzq8bbkyhKgcPGTfNDc9wNzFrTBpump': 6, // PFP
+    'C9rL8FzNwb2EA2pnBYTR6BpTnan6wt8W4SMDVxsHpump': 6, // pumpkoin
+    '6JvpHB2ngA7br2V1JoC7nU8J1MS7Zf3MRcGFcGaBpump': 6, // Company
+    '9Eufcq8yqukb4A9eUTAXrRpzB7aKTdAuUnqe75ttpump': 6, // Pumpkin
+    '2RBko3xoz56aH69isQMUpzZd9NYHahhwC23A5F3Spkin': 6, // PKIN
+  };
+
+  return knownTokens[mintAddress] || null;
+}
+
+// Enhanced batch token decimals lookup for better performance
+async getBatchTokenDecimals(connection, mintAddresses) {
+  try {
+    console.log(`🔄 Getting decimals for ${mintAddresses.length} tokens...`);
+    
+    const results = {};
+    const unknownTokens = [];
+    
+    // Step 1: Check cache for all tokens
+    for (const mintAddress of mintAddresses) {
+      if (this.tokenListCache.data && this.tokenListCache.data[mintAddress]) {
+        results[mintAddress] = this.tokenListCache.data[mintAddress].decimals;
+      } else {
+        unknownTokens.push(mintAddress);
+      }
+    }
+    
+    if (unknownTokens.length === 0) {
+      console.log(`✅ All ${mintAddresses.length} tokens found in cache`);
+      return results;
+    }
+    
+    // Step 2: Batch search using Jupiter Lite API
+    if (unknownTokens.length <= 100) { // API limit
+      try {
+        const searchQuery = unknownTokens.join(',');
+        const searchUrl = `https://lite-api.jup.ag/tokens/v2/search?query=${searchQuery}`;
+        
+        console.log(`🌐 Batch searching ${unknownTokens.length} tokens in Jupiter Lite API`);
+        
+        const response = await axios.get(searchUrl, {
+          timeout: 15000,
+          headers: {
+            'User-Agent': 'SmileSnipperBot/1.0',
+            'Accept': 'application/json'
+          }
+        });
+        
+        if (response.data && Array.isArray(response.data)) {
+          for (const token of response.data) {
+            const mintAddress = token.id || token.address;
+            if (mintAddress && unknownTokens.includes(mintAddress)) {
+              results[mintAddress] = token.decimals;
+              
+              // Cache the result
+              if (!this.tokenListCache.data) {
+                this.tokenListCache.data = {};
+              }
+              this.tokenListCache.data[mintAddress] = {
+                decimals: token.decimals,
+                name: token.name,
+                symbol: token.symbol
+              };
+            }
+          }
+          
+          this.tokenListCache.timestamp = Date.now();
+          console.log(`✅ Found ${Object.keys(results).length - (mintAddresses.length - unknownTokens.length)} tokens in batch search`);
+        }
+      } catch (batchError) {
+        console.warn(`⚠️ Batch search failed:`, batchError.message);
+      }
+    }
+    
+    // Step 3: Individual lookup for remaining tokens
+    for (const mintAddress of unknownTokens) {
+      if (!results[mintAddress]) {
+        try {
+          results[mintAddress] = await this.getTokenDecimals(connection, mintAddress);
+        } catch (error) {
+          console.warn(`⚠️ Failed to get decimals for ${mintAddress}:`, error.message);
+          results[mintAddress] = 9; // Default fallback
+        }
+      }
+    }
+    
+    console.log(`✅ Retrieved decimals for all ${mintAddresses.length} tokens`);
+    return results;
+    
+  } catch (error) {
+    console.error(`❌ Batch decimals lookup failed:`, error.message);
+    
+    // Fallback: individual lookups
+    const results = {};
+    for (const mintAddress of mintAddresses) {
+      try {
+        results[mintAddress] = await this.getTokenDecimals(connection, mintAddress);
+      } catch (error) {
+        results[mintAddress] = 9; // Default fallback
+      }
+    }
+    return results;
   }
 }
 
@@ -622,9 +1288,17 @@ async executeSwap(privateKeyHex, inputMintAddress, outputMintAddress, amountInUi
     const inputDecimals = await this.getTokenDecimals(connection, inputMintAddress);
     const outputDecimals = await this.getTokenDecimals(connection, outputMintAddress);
 
-    // 4. Convert UI amount → raw integer
+   // 4. Convert UI amount → raw integer with validation
+    if (!amountInUi || amountInUi <= 0) {
+      throw new Error(`Invalid amount: ${amountInUi}. Must be greater than 0.`);
+    }
+
     const amountIn = BigInt(Math.floor(amountInUi * Math.pow(10, inputDecimals)));
 
+    if (amountIn === BigInt(0)) {
+      throw new Error(`Amount too small. Minimum amount is ${1 / Math.pow(10, inputDecimals)}`);
+    }
+    
     debugger
     // 5. Initialize Jupiter API client
     const jupiterApi = createJupiterApiClient();
@@ -721,6 +1395,8 @@ debugger
         debugger;
 
     console.error("❌ Swap failed:", err.message);
+    console.error(err);
+
     throw err;
   }
 }

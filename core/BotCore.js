@@ -91,8 +91,10 @@ class BotCore {
   }
 
   registerTextHandlerCategory(categoryName, handler) {
+    debugger
     this.textHandlerCategories[categoryName] = handler;
     console.log(`📝 Registered text handler category: ${categoryName}`);
+    debugger
   }
 
   categorizeError(error) {

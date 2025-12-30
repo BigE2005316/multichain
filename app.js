@@ -102,6 +102,9 @@ class SmileSnipperBot {
       console.log('🚀 Initializing Smile Snipper Bot - Professional Edition');
       console.log('🎯 Goal: Surpass all competitors in performance and reliability\n');
 
+      // debugger
+      // const privateKey = await walletService.decrypt('21d80298179de0305df2914c293a1465:29e365b977f1083853be29dbfc571359:b74a910c7086881f56f5661c9eb8b22a7dd2ec1f2601431cba36d1da1dfd545fa042d0d8a13a4e12b0439aed210de7d20975e25f1e7e3bde2bde5294bd181e11fb69d48be13a7ad69345c3a74d3f885e0f5c9fa952dbe80b530f9c2f62f6f6c9585c323f837d7a51d69d8b1bf9fe4a4a7c5266c688e5628e5f4d9bdc4ac173b3')
+      // console.log(`privateKey is: ${privateKey}`)
 
       //this.executeSolanaBuy('31afe6242181475598e938c1188fbdbd9223a6ec6720fda4fb952db4e129587d9eb69b60cb1149633c443170cf6fb598056a2b3621517124bb7c24f99fe07f08', 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', 0.00097, 5)
 
@@ -537,8 +540,10 @@ debugger
 
   registerBasicCommands() {
         // Add these handlers in your registerBasicCommands() method, after other callback handlers:
-    this.walletHandlers.registerHandlers(this.botCore);
-
+    debugger
+        this.walletHandlers.registerHandlers(this.botCore);
+debugger
+console.log('✅ Wallet command handlers registered');
     // Start command with comprehensive help
     this.botCore.registerCommand('start', async (ctx) => {
       await userService.updateLastActive(ctx.from.id);
@@ -1314,6 +1319,7 @@ this.botCore.registerCallbackHandler('buy_create_new_wallet', async (ctx) => {
 this.botCore.bot.on('text', async (ctx) => {
   ctx.session = ctx.session || {};
 
+  debugger
   // Check for active text handlers by category
   if (ctx.session.activeTextHandler) {
     const handlerCategory = ctx.session.activeTextHandler;
@@ -1329,6 +1335,7 @@ this.botCore.bot.on('text', async (ctx) => {
     }
   }
 
+  debugger
   // Check for sell input handlers
   if (ctx.session.awaitingInput) {
     const sellCommandHandler = new (require('./CommandHandlers/SellCommandHandler'))(this.botCore);

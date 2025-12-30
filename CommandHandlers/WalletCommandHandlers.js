@@ -813,25 +813,25 @@ botCore.registerCallbackHandler('import_help', async (ctx) => {
 });
 
 // Updated text handler for import wallet flow
-botCore.registerTextHandler('awaitingImportPrivateKey', async (ctx) => {
+botCore.registerTextHandlerCategory('awaitingImportPrivateKey', async (ctx) => {
   ctx.session = ctx.session || {};
   const privateKey = ctx.message.text.trim();
   const chain = ctx.session.importChain;
   const userId = ctx.from.id;
-
+debugger
   if (!chain) {
     await ctx.reply('❌ Import session expired. Please start over with /wallet.');
     ctx.session.awaitingImportPrivateKey = false;
     ctx.session.activeTextHandler = null;
     return;
   }
-
+debugger
   // Basic validation
   if (!privateKey || privateKey.length < 32) {
     await ctx.reply(`❌ Invalid private key for ${chain.toUpperCase()}. Please check the format and try again or use /cancel.`);
     return;
   }
-
+debugger
   // Chain-specific validation
   let isValidFormat = false;
   let validationError = '';
@@ -851,6 +851,7 @@ botCore.registerTextHandler('awaitingImportPrivateKey', async (ctx) => {
       } else {
         // Base58 format
         isValidFormat = privateKey.length >= 80 && privateKey.length <= 90;
+        isValidFormat = true;
         if (!isValidFormat) validationError = 'Base58 key should be 80-90 characters';
       }
       break;
